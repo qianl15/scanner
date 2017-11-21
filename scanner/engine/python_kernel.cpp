@@ -81,6 +81,7 @@ void PythonKernel::execute(const BatchedColumns& input_columns,
     py::list batched_cols;
     for (i32 j = 0; j < input_columns.size(); ++j) {
       py::list rows;
+      // HACK(wcrichto): should pass column type in config and check here
       if (config_.input_column_types[j] == proto::ColumnType::Video) {
         for (i32 i = 0; i < input_count; ++i) {
           const Frame *frame = input_columns[j][i].as_const_frame();
@@ -108,7 +109,7 @@ void PythonKernel::execute(const BatchedColumns& input_columns,
           << output_columns.size();
 
     for (i32 j = 0; j < output_columns.size(); ++j) {
-      // push all rows: input_count
+      // push all rows to that column
       LOG_IF(FATAL, py::len(batched_out_cols[j]) != input_count)
           << "Incorrect number of output rows. Expected "
           << input_count;

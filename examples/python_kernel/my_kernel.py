@@ -34,7 +34,8 @@ class MyOpKernel(scannerpy.Kernel):
     # print('Raw={:d}, Jpeg={:d}'.format(len(encode(arr, format="bmp")), len(jpeg_image)))
       # print('list size :{:d}'.format(len(input_columns[0])))
     input_count = len(input_columns[0])
-
-    return [[struct.pack('=q', 9000) for _ in xrange(input_count)]]
+    column_count = len(input_columns)
+    return [[struct.pack('=q', 9000) for _ in xrange(input_count)] 
+             for _ in xrange(column_count)]
 
 KERNEL = MyOpKernel
