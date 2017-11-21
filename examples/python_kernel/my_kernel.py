@@ -28,14 +28,19 @@ class MyOpKernel(scannerpy.Kernel):
     # width, height = pil_im.size
     # print('width {}, height {}'.format(width, height))
     print np.shape(input_columns)
+    print len(np.shape(input_columns))
+    dims = len(np.shape(input_columns))
     # print arr
     # arr = input_columns[0]
     # jpeg_image = encode(arr)
     # print('Raw={:d}, Jpeg={:d}'.format(len(encode(arr, format="bmp")), len(jpeg_image)))
       # print('list size :{:d}'.format(len(input_columns[0])))
-    input_count = len(input_columns[0])
-    column_count = len(input_columns)
-    return [[struct.pack('=q', 9000) for _ in xrange(input_count)] 
+    if dims > 4:
+      input_count = len(input_columns[0])
+      column_count = len(input_columns)
+      return [[struct.pack('=q', 9000) for _ in xrange(input_count)] 
              for _ in xrange(column_count)]
+    else:
+      return [struct.pack('=q', 9000)]
 
 KERNEL = MyOpKernel

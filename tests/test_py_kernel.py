@@ -13,9 +13,6 @@ class TestPyKernel(scannerpy.Kernel):
         point = protobufs.Point()
         point.x = 10
         point.y = 5
-        input_count = len(input_columns[0])
-        column_count = len(input_columns)
-        return [[point.SerializeToString() for _ in xrange(input_count)]
-                for _ in xrange(column_count)]
+        return [point.SerializeToString()]
 
 KERNEL = TestPyKernel

@@ -1433,18 +1433,22 @@ grpc::Status WorkerImpl::RegisterPythonKernel(
   const std::string& pickled_config = python_kernel->pickled_config();
   const int batch_size = python_kernel->batch_size();
   // Create a kernel builder function
-  auto constructor = [kernel_str, pickled_config](const KernelConfig& config) {
-    return new PythonKernel(config, kernel_str, pickled_config);
+  auto constructor = [kernel_str, pickled_config, batch_size](
+    const KernelConfig& config) {
+    return new PythonKernel(config, kernel_str, pickled_config, batch_size);
   };
   // Create a new kernel factory
-  KernelFactory* factory;
-  if (batch_size > 0) {
-    factory = new KernelFactory(op_name, device_type, 1, true, 
-                                batch_size, constructor);
-  } else {
-    factory = new KernelFactory(op_name, device_type, 1, false, 
-                                1, constructor);
-  }
+  bool can_batch = (batch_size > 1);
+  KernelFactory* factory = new KernelFactory(op_name, device_type, 1, 
+      can_batch, batch_size, constructor);
+  // KernelFactory* factory;
+  // if (batch_size > 0) {
+  //   factory = new KernelFactory(op_name, device_type, 1, true, 
+  //                               batch_size, constructor);
+  // } else {
+  //   factory = new KernelFactory(op_name, device_type, 1, false, 
+  //                               1, constructor);
+  // }
   // Register the kernel
   KernelRegistry* registry = get_kernel_registry();
   registry->add_kernel(op_name, factory);
