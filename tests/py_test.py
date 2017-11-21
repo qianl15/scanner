@@ -410,7 +410,7 @@ def test_python_kernel(db):
     tables = db.run(bulk_job, force=True, show_progress=False)
     next(tables[0].load(['dummy']))
 
-def test_batch_python_kernel(db):
+def test_python_batch_kernel(db):
     db.register_op('TestPyBatch',
                    [('frame', ColumnType.Video)],
                    ['dummy'])
