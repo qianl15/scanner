@@ -28,6 +28,10 @@ endif()
 
 ###### Setup #########
 # Verify C++11 support
+SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+SET(BUILD_SHARED_LIBRARIES OFF)
+SET(CMAKE_EXE_LINKER_FLAGS "-static -DNO_TBB=1 -lx264 -DOPJ_STATIC")
+
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
 CHECK_CXX_COMPILER_FLAG("-std=c++1y" COMPILER_SUPPORTS_CXX1Y)
@@ -79,7 +83,7 @@ if (BUILD_CUDA)
   add_library(scanner_halide scanner/util/halide_context.cpp)
 endif()
 
-set(OPENCV_DESIRED_COMPONENTS core highgui imgproc imgcodecs xfeatures2d)
+set(OPENCV_DESIRED_COMPONENTS core highgui imgproc imgcodecs)
 if (BUILD_CUDA)
   list(APPEND OPENCV_DESIRED_COMPONENTS cudaimgproc cudaarithm)
 endif()
@@ -212,7 +216,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG")
 
 add_subdirectory(scanner)
 
-add_library(scanner SHARED
+add_library(scanner STATIC
   $<TARGET_OBJECTS:api>
   $<TARGET_OBJECTS:engine>
   $<TARGET_OBJECTS:video>

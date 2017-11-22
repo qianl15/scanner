@@ -15,10 +15,7 @@
 
 #include "scanner/video/decoder_automata.h"
 #include "scanner/util/fs.h"
-#include "tests/videos.h"
 #include "scanner/util/opencv.h"  // for using OpenCV
-
-#include <gtest/gtest.h>
 
 #include <fstream>
 #include <thread>
@@ -46,11 +43,11 @@ namespace internal {
     encodedFile.read(encodedVideoBuffer, loadedDecodeArgs.encoded_video_size());
     */
     
-    MemoryPoolConfig config;
-    init_memory_allocators(config, {});
-    std::unique_ptr<storehouse::StorageConfig> sc(storehouse::StorageConfig::make_posix_config());
+    // MemoryPoolConfig config;
+    // init_memory_allocators(config, {});
+    // std::unique_ptr<storehouse::StorageConfig> sc(storehouse::StorageConfig::make_posix_config());
 
-    auto storage = storehouse::StorageBackend::make_from_config(sc.get());
+    // auto storage = storehouse::StorageBackend::make_from_config(sc.get());
     VideoDecoderType decoder_type = VideoDecoderType::SOFTWARE;
     DeviceHandle device = CPU_DEVICE;
     DecoderAutomata* decoder = new DecoderAutomata(device, 1, decoder_type);
@@ -124,8 +121,8 @@ namespace internal {
 
     
     delete decoder;
-    delete storage;
-    destroy_memory_allocators();
+    // delete storage;
+    // destroy_memory_allocators();
   }
 }
 }
