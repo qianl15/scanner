@@ -21,7 +21,9 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-
+extern "C" {
+#include "libavcodec/avcodec.h"
+}
 namespace scanner {
 namespace internal {
 

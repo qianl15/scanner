@@ -1,4 +1,8 @@
 set(SCANNER_PATH "${CMAKE_SOURCE_DIR}")
+SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+SET(BUILD_SHARED_LIBRARIES OFF)
+SET(CMAKE_EXE_LINKER_FLAGS "-static")
+
 include(${SCANNER_PATH}/cmake/Util/Op.cmake)
 
 option(BUILD_IMGPROC_OPS "" ON)
@@ -90,7 +94,8 @@ build_op(
   CPP_SRCS ${SOURCES}
   PROTO_SRC stdlib.proto
   NO_FLAGS ON)
-add_dependencies(stdlib scanner)
+# add_dependencies(stdlib ${SCANNER_PATH}/build/libscanner.a)
+target_link_libraries(stdlib PUBLIC ${SCANNER_PATH}/build/libscanner.a)
 
 find_package(OpenCV REQUIRED COMPONENTS "${OPENCV_COMPONENTS}")
 list(APPEND STDLIB_LIBRARIES "${OpenCV_LIBRARIES}")

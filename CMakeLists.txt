@@ -36,7 +36,7 @@ include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
 CHECK_CXX_COMPILER_FLAG("-std=c++1y" COMPILER_SUPPORTS_CXX1Y)
 if(COMPILER_SUPPORTS_CXX1Y)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
+  set(CMAKE_CXX_FLAGS "-std=c++1y")
 # if(COMPILER_SUPPORTS_CXX11)
 #   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 else()
@@ -62,7 +62,7 @@ endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 if(NOT APPLE AND UNIX)
   set(CMAKE_SHARED_LINKER_FLAGS
-    "${CMAKE_SHARED_LINKER_FLAGS} -pthread -ldl -lrt")
+    "${CMAKE_SHARED_LINKER_FLAGS} -pthread -lrt")
 endif()
 
 if (ENABLE_PROFILING)
@@ -106,6 +106,7 @@ find_package(TinyToml REQUIRED)
 find_package(PythonLibs 2.7 EXACT REQUIRED)
 find_package(OpenCV COMPONENTS ${OPENCV_DESIRED_COMPONENTS})
 find_package(OpenMP REQUIRED)
+SET(OPJ_LIBRARY "/opt/openjpeg/lib/libopenjp2.a")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
@@ -122,6 +123,7 @@ set(SCANNER_LIBRARIES
   "${FFMPEG_LIBRARIES}"
   "-L/opt/ffmpeg-3.3.1/lib"
   "-lswscale"
+  "${OPJ_LIBRARY}"
   "${LIBLZMA_LIBRARIES}"
   "${OPENSSL_LIBRARIES}"
   "${BZIP2_LIBRARIES}"
@@ -134,12 +136,13 @@ set(SCANNER_LIBRARIES
   "${SCANNER_LIBRARIES}"
   "-lpython2.7"
   "${Boost_LIBRARIES}"
-  "${Boost_LIBRARY_DIRS}/libboost_python.so"
-  "${Boost_LIBRARY_DIRS}/libboost_numpy.so"
+  "${Boost_LIBRARY_DIRS}/libboost_python.a"
+  "${Boost_LIBRARY_DIRS}/libboost_numpy.a"
   "${STOREHOUSE_LIBRARIES}"
   "-ljpeg"
   "-lz"
   "-ldl"
+  "-lopenjp2"
   "-lgrpc++_unsecure -lgrpc -lgpr")
 
 include_directories(
@@ -262,8 +265,12 @@ if (BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+
 execute_process(
   COMMAND mkdir -p ${CMAKE_SOURCE_DIR}/python/scannerpy/include
   COMMAND ln -fs ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/python/scannerpy/build
   COMMAND ln -fs ${CMAKE_SOURCE_DIR}/scanner ${CMAKE_SOURCE_DIR}/python/scannerpy/include
   OUTPUT_VARIABLE FOO)
+
+add_executable(DecoderAutomataCmd scanner/video/decoder_automata_cmd.cpp)
+target_link_libraries(DecoderAutomataCmd ${SCANNER_LIBRARIES} /opt/scanner/build/libscanner.a /usr/lib/x86_64-linux-gnu/libz.a /usr/lib/x86_64-linux-gnu/libdl.a)

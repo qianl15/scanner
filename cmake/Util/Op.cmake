@@ -39,7 +39,7 @@ function(build_op)
     add_library(${args_LIB_NAME} SHARED ${args_CPP_SRCS})
   endif()
 
-  target_link_libraries(${args_LIB_NAME} PUBLIC "${SCANNER_PATH}/build/libscanner.so")
+  target_link_libraries(${args_LIB_NAME} PUBLIC "${SCANNER_PATH}/build/libscanner.a")
 
   if("${args_NO_FLAGS}" STREQUAL "")
     execute_process(
