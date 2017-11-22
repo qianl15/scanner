@@ -18,7 +18,6 @@
 #include "scanner/util/opencv.h"  // for using OpenCV
 
 #include <fstream>
-#include <thread>
 
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -43,8 +42,9 @@ namespace internal {
     encodedFile.read(encodedVideoBuffer, loadedDecodeArgs.encoded_video_size());
     */
     
-    // MemoryPoolConfig config;
-    // init_memory_allocators(config, {});
+    MemoryPoolConfig config;
+    init_memory_allocators(config, {});
+
     // std::unique_ptr<storehouse::StorageConfig> sc(storehouse::StorageConfig::make_posix_config());
 
     // auto storage = storehouse::StorageBackend::make_from_config(sc.get());
@@ -60,6 +60,7 @@ namespace internal {
     u8* video_buffer = new_buffer(CPU_DEVICE, video_bytes.size());
     memcpy_buffer(video_buffer, CPU_DEVICE, video_bytes.data(), CPU_DEVICE,
 		  video_bytes.size());
+
     /*
     std::vector<proto::DecodeArgs> args;
     args.emplace_back();
@@ -117,12 +118,13 @@ namespace internal {
           std::ios::out | std::ios::trunc | std::ios::binary);
       output_buff.write(str_encode.c_str(), str_encode.size());
       printf("Save frame%d.jpg to disk \n", ind);
+      delete frame;
     }
 
     
     delete decoder;
     // delete storage;
-    // destroy_memory_allocators();
+    destroy_memory_allocators();
   }
 }
 }
