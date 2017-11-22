@@ -26,6 +26,11 @@ add_library(video OBJECT
 set_source_files_properties(${PROTO_SRCS} ${GRPC_PROTO_SRCS} PROPERTIES
   GENERATED TRUE)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ggdb")
+  
+add_executable(DecoderAutomataCmd decoder_automata_cmd.cpp)
+target_link_libraries(DecoderAutomataCmd
+  scanner)
 add_executable(DecoderAutomataTest decoder_automata_test.cpp)
 target_link_libraries(DecoderAutomataTest
   ${GTEST_LIBRARIES} ${GTEST_LIB_MAIN}

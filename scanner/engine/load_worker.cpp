@@ -18,6 +18,9 @@
 #include "storehouse/storage_backend.h"
 
 #include <glog/logging.h>
+#include <iostream>
+#include <fstream>
+#include <string>
 
 using storehouse::StoreResult;
 using storehouse::WriteFile;
@@ -331,6 +334,25 @@ bool LoadWorker::yield(i32 item_size,
 
 bool LoadWorker::done() { return current_row_ >= total_rows_; }
 
+
+void writeDecodeArgsAndBufferToDisk(proto::DecodeArgs& decode_args, u8* buffer, size_t buffer_size,
+				      i64 start_frame){
+  
+  // Write the new address book back to disk.
+  std::string start_frame_str = std::to_string(start_frame);
+  std::cout << "writing decode_args and buffer for start frame " << start_frame_str << std::endl;
+  std::fstream outputDecodeArgs("decode_args" + start_frame_str + ".proto",
+				std::ios::out | std::ios::trunc | std::ios::binary);
+  if (!decode_args.SerializeToOstream(&outputDecodeArgs)) {
+    std::cerr << "Failed to write address book." << std::endl;
+  }
+
+  std::fstream outputBuffer("start_frame" + start_frame_str + ".bin",
+			    std::ios::out | std::ios::trunc | std::ios::binary);
+  outputBuffer.write((char *) buffer, buffer_size);
+  
+}
+  
 void read_video_column(Profiler& profiler, const VideoIndexEntry& index_entry,
                        const std::vector<i64>& rows, i64 start_frame,
                        ElementList& element_list) {
@@ -421,9 +443,10 @@ void read_video_column(Profiler& profiler, const VideoIndexEntry& index_entry,
     bool result = decode_args.SerializeToArray(decode_args_buffer, size);
     assert(result);
     insert_element(element_list, decode_args_buffer, size);
-
+    writeDecodeArgsAndBufferToDisk(decode_args, buffer, buffer_size, start_frame + intervals.valid_frames[i][0]);
   }
 }
+    
 
 void LoadWorker::read_other_column(i32 table_id, i32 column_id, i32 item_id,
                                    i32 item_start, i32 item_end,

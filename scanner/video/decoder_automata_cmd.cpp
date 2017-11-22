@@ -1,0 +1,108 @@
+/* Copyright 2016 Carnegie Mellon University
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "scanner/video/decoder_automata.h"
+#include "scanner/util/fs.h"
+#include "tests/videos.h"
+
+#include <gtest/gtest.h>
+
+#include <fstream>
+#include <thread>
+
+extern "C" {
+#include "libavcodec/avcodec.h"
+}
+namespace scanner {
+namespace internal {
+  
+  void decodeFromDisk(int argc, char *argv[]) {
+    avcodec_register_all();
+
+    std::fstream decodeArgsFile(argv[1], std::ios::in | std::ios::binary);
+    //std::fstream encodedFile(argv[2], std::ios::in | std::ios::binary);
+    proto::DecodeArgs loadedDecodeArgs;
+    if (!loadedDecodeArgs.ParseFromIstream(&decodeArgsFile)) {
+      std::cerr << "Failed to parse address book." << std::endl;
+      return;
+    }
+    std::cout << "The loaded decode args are: \n " << loadedDecodeArgs.DebugString() << std::endl;
+    std::vector<proto::DecodeArgs> args;
+    /*
+    u8* encodedVideoBuffer = new u8[loadedDecodeArgs.encoded_video_size()];
+    encodedFile.read(encodedVideoBuffer, loadedDecodeArgs.encoded_video_size());
+    */
+    
+    MemoryPoolConfig config;
+    init_memory_allocators(config, {});
+    std::unique_ptr<storehouse::StorageConfig> sc(storehouse::StorageConfig::make_posix_config());
+
+    auto storage = storehouse::StorageBackend::make_from_config(sc.get());
+    VideoDecoderType decoder_type = VideoDecoderType::SOFTWARE;
+    DeviceHandle device = CPU_DEVICE;
+    DecoderAutomata* decoder = new DecoderAutomata(device, 1, decoder_type);
+
+    // Load test data
+    //VideoMetadata video_meta =
+    //  read_video_metadata(storage, download_video_meta(short_video));
+    std::string videoFileName = argv[2];
+    std::vector<u8> video_bytes = read_entire_file(videoFileName);
+    u8* video_buffer = new_buffer(CPU_DEVICE, video_bytes.size());
+    memcpy_buffer(video_buffer, CPU_DEVICE, video_bytes.data(), CPU_DEVICE,
+		  video_bytes.size());
+    /*
+    std::vector<proto::DecodeArgs> args;
+    args.emplace_back();
+    proto::DecodeArgs& decode_args = args.back();
+    decode_args.set_width(video_meta.width());
+    decode_args.set_height(video_meta.height());
+    decode_args.set_start_keyframe(0);
+    decode_args.set_end_keyframe(video_meta.frames());
+    for (i64 r = 0; r < video_meta.frames(); ++r) {
+      decode_args.add_valid_frames(r);
+    }
+    for (i64 k : video_meta.keyframe_positions()) {
+      decode_args.add_keyframes(k);
+    }
+    for (i64 k : video_meta.keyframe_byte_offsets()) {
+      decode_args.add_keyframe_byte_offsets(k);
+    }
+    
+    decode_args.set_encoded_video_size(video_bytes.size());
+    */
+    loadedDecodeArgs.set_encoded_video((i64)video_buffer);
+
+    args.push_back(loadedDecodeArgs);
+    decoder->initialize(args);
+
+    std::vector<u8> frame_buffer(loadedDecodeArgs.width() * loadedDecodeArgs.height() * 3);
+    for (i64 i = 0; i < loadedDecodeArgs.valid_frames().size(); ++i) {
+      decoder->get_frames(frame_buffer.data(), 1);
+      printf("for frame %li the red component of a pixel has value: %i \n", i, frame_buffer[300000]);
+      printf("for frame %li the green component of the a pixel has value: %i \n", i, frame_buffer[300001]);
+      printf("for frame %li the blue component of the a pixel has value: %i \n", i, frame_buffer[300002]);
+    }
+    
+    delete decoder;
+    delete storage;
+    destroy_memory_allocators();
+  }
+}
+}
+
+int main(int argc, char *argv[]) {
+  scanner::internal::decodeFromDisk(argc, argv);
+  return 0;
+}

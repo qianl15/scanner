@@ -11,6 +11,9 @@ thirdparty
 !thirdparty/CMakeLists.txt
 python/*.egg-info
 
+oldbuild
+.idea
+
 **/*.mp4
 **/*.mkv
 
