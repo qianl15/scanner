@@ -27,10 +27,11 @@ set_source_files_properties(${PROTO_SRCS} ${GRPC_PROTO_SRCS} PROPERTIES
   GENERATED TRUE)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ggdb")
-  
+
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui xfeatures2d imgcodecs)
+include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS} ".")
 add_executable(DecoderAutomataCmd decoder_automata_cmd.cpp)
-target_link_libraries(DecoderAutomataCmd
-  scanner)
+target_link_libraries(DecoderAutomataCmd ${OpenCV_LIBRARY} scanner)
 add_executable(DecoderAutomataTest decoder_automata_test.cpp)
 target_link_libraries(DecoderAutomataTest
   ${GTEST_LIBRARIES} ${GTEST_LIB_MAIN}

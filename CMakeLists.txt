@@ -79,7 +79,7 @@ if (BUILD_CUDA)
   add_library(scanner_halide scanner/util/halide_context.cpp)
 endif()
 
-set(OPENCV_DESIRED_COMPONENTS core highgui imgproc)
+set(OPENCV_DESIRED_COMPONENTS core highgui imgproc imgcodecs xfeatures2d)
 if (BUILD_CUDA)
   list(APPEND OPENCV_DESIRED_COMPONENTS cudaimgproc cudaarithm)
 endif()

@@ -16,6 +16,7 @@
 #include "scanner/video/decoder_automata.h"
 #include "scanner/util/fs.h"
 #include "tests/videos.h"
+#include "scanner/util/opencv.h"  // for using OpenCV
 
 #include <gtest/gtest.h>
 
@@ -87,13 +88,40 @@ namespace internal {
     args.push_back(loadedDecodeArgs);
     decoder->initialize(args);
 
+
     std::vector<u8> frame_buffer(loadedDecodeArgs.width() * loadedDecodeArgs.height() * 3);
+
+    FrameInfo frame_info(loadedDecodeArgs.height(), loadedDecodeArgs.width(), 
+                         3, FrameType::U8);
+    std::vector<int> encode_params;
+    encode_params.push_back(CV_IMWRITE_JPEG_QUALITY);
+    encode_params.push_back(100);
     for (i64 i = 0; i < loadedDecodeArgs.valid_frames().size(); ++i) {
       decoder->get_frames(frame_buffer.data(), 1);
-      printf("for frame %li the red component of a pixel has value: %i \n", i, frame_buffer[300000]);
-      printf("for frame %li the green component of the a pixel has value: %i \n", i, frame_buffer[300001]);
-      printf("for frame %li the blue component of the a pixel has value: %i \n", i, frame_buffer[300002]);
+      int ind = loadedDecodeArgs.valid_frames()[i];
+      std::string ind_str = std::to_string(ind);
+      
+      // printf("for frame %li the red component of a pixel has value: %i \n", i, frame_buffer[300000]);
+      // printf("for frame %li the green component of the a pixel has value: %i \n", i, frame_buffer[300001]);
+      // printf("for frame %li the blue component of the a pixel has value: %i \n", i, frame_buffer[300002]);
+
+      const scanner::Frame* frame = new Frame(frame_info, frame_buffer.data());
+      cv::Mat img = scanner::frame_to_mat(frame);
+      std::vector<u8> buf;
+      cv::Mat recolored;
+      cv::cvtColor(img, recolored, CV_RGB2BGR);
+      bool success = cv::imencode(".jpg", recolored, buf, encode_params);
+      if(!success) {
+        std::cout << "Failed to encode image" << std::endl;
+        exit(1);
+      }
+      std::string str_encode(buf.begin(), buf.end());
+      std::fstream output_buff("frame" + ind_str + ".jpg",
+          std::ios::out | std::ios::trunc | std::ios::binary);
+      output_buff.write(str_encode.c_str(), str_encode.size());
+      printf("Save frame%d.jpg to disk \n", ind);
     }
+
     
     delete decoder;
     delete storage;
