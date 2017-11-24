@@ -16,9 +16,12 @@ cmake_minimum_required(VERSION 3.2.0 FATAL_ERROR)
 
 project(Scanner)
 
+SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+SET(BUILD_SHARED_LIBRARIES OFF)
+
 ###### Config options #####
-option(BUILD_CUDA "" ON)
-option(BUILD_TESTS "" ON)
+option(BUILD_CUDA "" OFF)
+option(BUILD_TESTS "" OFF)
 option(BUILD_SERVER "" OFF)
 option(ENABLE_PROFILING "" OFF)
 
@@ -130,8 +133,8 @@ set(SCANNER_LIBRARIES
   "${SCANNER_LIBRARIES}"
   "-lpython2.7"
   "${Boost_LIBRARIES}"
-  "${Boost_LIBRARY_DIRS}/libboost_python.so"
-  "${Boost_LIBRARY_DIRS}/libboost_numpy.so"
+  "${Boost_LIBRARY_DIRS}/libboost_python.a"
+  "${Boost_LIBRARY_DIRS}/libboost_numpy.a"
   "${STOREHOUSE_LIBRARIES}"
   "-ljpeg"
   "-lz"
@@ -212,7 +215,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG")
 
 add_subdirectory(scanner)
 
-add_library(scanner SHARED
+add_library(scanner STATIC
   $<TARGET_OBJECTS:api>
   $<TARGET_OBJECTS:engine>
   $<TARGET_OBJECTS:video>
@@ -235,7 +238,8 @@ if(APPLE)
     "-undefined dynamic_lookup"
     )
 elseif(UNIX)
-  set(PLATFORM_LINK_FLAGS "-pthread -ldl -lrt")
+#  set(PLATFORM_LINK_FLAGS "-pthread -ldl -lrt")
+   set(PLATFORM_LINK_FLAGS "-lpthread")
 endif()
 
 target_link_libraries(scanner PUBLIC
@@ -252,7 +256,9 @@ foreach(FIL ${PROTO_FILES} ${GRPC_PROTO_FILES})
     COMMAND ${CMAKE_COMMAND} -E touch ${PYDIR}/${DIR_FIL}/__init__.py)
 endforeach()
 
-add_subdirectory(stdlib)
+if (BUILD_IMGPROC_OPS)
+  add_subdirectory(stdlib)
+endif()
 
 if (BUILD_TESTS)
   add_subdirectory(tests)

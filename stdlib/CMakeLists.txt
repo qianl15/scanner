@@ -1,11 +1,11 @@
 set(SCANNER_PATH "${CMAKE_SOURCE_DIR}")
 include(${SCANNER_PATH}/cmake/Util/Op.cmake)
 
-option(BUILD_IMGPROC_OPS "" ON)
-option(BUILD_CAFFE_OPS "" ON)
+option(BUILD_IMGPROC_OPS "" OFF)
+option(BUILD_CAFFE_OPS "" OFF)
 option(BUILD_CPM2_OPS "" OFF)
-option(BUILD_MOTION_OPS "" ON)
-option(BUILD_VIZ_OPS "" ON)
+option(BUILD_MOTION_OPS "" OFF)
+option(BUILD_VIZ_OPS "" OFF)
 option(BUILD_OPENFACE_OPS "" OFF)
 option(BUILD_GIPUMA_OPS "" OFF)
 

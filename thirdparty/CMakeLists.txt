@@ -54,6 +54,7 @@ if (NOT STOREHOUSE_FOUND)
   ExternalProject_Add(Storehouse
     GIT_REPOSITORY "https://github.com/qinglan233/storehouse"
     #GIT_TAG "465bd309ddbe0dfa7b0cd9dd2a88f03e17650e90"
+    GIT_TAG "static-build"
 
     UPDATE_COMMAND mkdir -p thirdparty/build && cd thirdparty/build &&
     cmake ${THIRDPARTY_SOURCE_DIR}/storehouse/thirdparty && make -j${N}
@@ -68,6 +69,8 @@ if (NOT STOREHOUSE_FOUND)
     -DCMAKE_LIBRARY_PATH=${CMAKE_LIBRARY_PATH}
     -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}
     -DBUILD_STATIC=ON
+    -DCMAKE_FIND_LIBRARY_SUFFIXES="a"
+    -DBUILD_SHARED_LIBRARIES=OFF
 
     CMAKE_CACHE_ARGS
     -DGLOG_ROOT_DIR:FILEPATH=${GLOG_ROOT_DIR}
