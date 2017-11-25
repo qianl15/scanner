@@ -841,7 +841,7 @@ grpc::Status WorkerImpl::NewJob(grpc::ServerContext* context,
                         // Per worker arguments
                         i, db_params_.storage_config, load_thread_profilers[i],
                         job_params->load_sparsity_threshold(), io_packet_size,
-                        work_packet_size};
+                        work_packet_size, job_params->load_to_disk()};
 
     load_threads.emplace_back(load_driver, std::ref(load_work),
                               std::ref(initial_eval_work), args);

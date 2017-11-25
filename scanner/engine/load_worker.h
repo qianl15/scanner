@@ -34,6 +34,7 @@ struct LoadWorkerArgs {
   i32 load_sparsity_threshold;
   i32 io_packet_size;
   i32 work_packet_size;
+  bool load_to_disk;
 };
 
 class LoadWorker {
@@ -73,11 +74,12 @@ class LoadWorker {
   LoadWorkEntry entry_;
   i64 current_row_;
   i64 total_rows_;
+  bool load_to_disk_;
 };
 
 void read_video_column(Profiler& profiler,
                        const VideoIndexEntry& index_entry,
                        const std::vector<i64>& rows, i64 start_offset,
-                       ElementList& element_list);
+                       ElementList& element_list, bool load_to_disk);
 }
 }

@@ -907,7 +907,8 @@ class Database:
             show_progress=False,
             profiling=False,
             load_sparsity_threshold=8,
-            tasks_in_queue_per_pu=4):
+            tasks_in_queue_per_pu=4,
+            load_to_disk=False):
         """
         Runs a computation over a set of inputs.
 
@@ -1036,6 +1037,7 @@ class Database:
             size = self._parse_size_string(gpu_pool)
             job_params.memory_pool_config.gpu.free_space = size
 
+        job_params.load_to_disk = load_to_disk
         # Run the job
         self._try_rpc(lambda: self._master.NewJob(job_params))
 

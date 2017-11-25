@@ -18,6 +18,9 @@
 #include "storehouse/storage_backend.h"
 
 #include <glog/logging.h>
+#include <iostream>
+#include <fstream>
+#include <string>
 
 using storehouse::StoreResult;
 using storehouse::WriteFile;
@@ -186,7 +189,8 @@ LoadWorker::LoadWorker(const LoadWorkerArgs& args)
     profiler_(args.profiler),
     load_sparsity_threshold_(args.load_sparsity_threshold),
     io_packet_size_(args.io_packet_size),
-    work_packet_size_(args.work_packet_size) {
+    work_packet_size_(args.work_packet_size),
+    load_to_disk_(args.load_to_disk) {
   storage_.reset(
       storehouse::StorageBackend::make_from_config(args.storage_config));
   meta_ = read_database_metadata(storage_.get(),
@@ -283,7 +287,8 @@ bool LoadWorker::yield(i32 item_size,
           // Video was encoded using h264
 
           read_video_column(profiler_, entry, valid_offsets, item_start_row,
-                            eval_work_entry.columns[out_col_idx]);
+                            eval_work_entry.columns[out_col_idx], 
+                            load_to_disk_);
         } else {
           // Video was encoded as individual images
           i32 item_id = intervals.item_ids[i];
@@ -331,9 +336,28 @@ bool LoadWorker::yield(i32 item_size,
 
 bool LoadWorker::done() { return current_row_ >= total_rows_; }
 
+void writeDecodeArgsAndBufferToDisk(proto::DecodeArgs& decode_args, u8* buffer, size_t buffer_size,
+              i64 start_frame){
+  
+  // Write the new address book back to disk.
+  std::string start_frame_str = std::to_string(start_frame);
+  std::cout << "writing decode_args and buffer for start frame " << start_frame_str << std::endl;
+  std::fstream outputDecodeArgs("decode_args" + start_frame_str + ".proto",
+        std::ios::out | std::ios::trunc | std::ios::binary);
+  if (!decode_args.SerializeToOstream(&outputDecodeArgs)) {
+    std::cerr << "Failed to write address book." << std::endl;
+  }
+
+  std::fstream outputBuffer("start_frame" + start_frame_str + ".bin",
+          std::ios::out | std::ios::trunc | std::ios::binary);
+  outputBuffer.write((char *) buffer, buffer_size);
+  
+}
+
+
 void read_video_column(Profiler& profiler, const VideoIndexEntry& index_entry,
                        const std::vector<i64>& rows, i64 start_frame,
-                       ElementList& element_list) {
+                       ElementList& element_list, bool load_to_disk) {
   std::unique_ptr<RandomReadFile> video_file = index_entry.open_file();
   u64 file_size = index_entry.file_size;
   const std::vector<i64>& keyframe_positions = index_entry.keyframe_positions;
@@ -420,8 +444,13 @@ void read_video_column(Profiler& profiler, const VideoIndexEntry& index_entry,
     u8* decode_args_buffer = new_buffer(CPU_DEVICE, size);
     bool result = decode_args.SerializeToArray(decode_args_buffer, size);
     assert(result);
-    insert_element(element_list, decode_args_buffer, size);
 
+    // save to disk or not
+    if (load_to_disk) {
+      writeDecodeArgsAndBufferToDisk(decode_args, buffer, buffer_size, 
+        start_frame + intervals.valid_frames[i][0]);
+    } 
+    insert_element(element_list, decode_args_buffer, size);
   }
 }
 

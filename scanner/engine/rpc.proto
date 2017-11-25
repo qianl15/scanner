@@ -135,6 +135,7 @@ message BulkJobParameters {
     ERROR = 2;
   };
   BoundaryCondition boundary_condition = 15;
+  bool load_to_disk = 16;
 }
 
 message NewWork {
