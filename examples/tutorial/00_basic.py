@@ -67,7 +67,7 @@ with Database(debug=True) as db:
     # This executes the job and produces the output table. You'll see a progress
     # bar while Scanner is computing the outputs.
     start = now()
-    output_tables = db.run(bulk_job, force=True, load_to_disk=True)
+    output_tables = db.run(bulk_job, force=True)
     print('Totaltime to decode + compute histograms: {:.6f}s'.format(now() - start))
 
     # Load the histograms from a column of the output table. The
