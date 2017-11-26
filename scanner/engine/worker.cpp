@@ -1469,15 +1469,7 @@ grpc::Status WorkerImpl::RegisterPythonKernel(
   // Create a new kernel factory
   bool can_batch = (batch_size > 1);
   KernelFactory* factory = new KernelFactory(op_name, device_type, 1, 
-      can_batch, batch_size, constructor);
-  // KernelFactory* factory;
-  // if (batch_size > 0) {
-  //   factory = new KernelFactory(op_name, device_type, 1, true, 
-  //                               batch_size, constructor);
-  // } else {
-  //   factory = new KernelFactory(op_name, device_type, 1, false, 
-  //                               1, constructor);
-  // }
+                                  can_batch, batch_size, constructor);
   // Register the kernel
   KernelRegistry* registry = get_kernel_registry();
   registry->add_kernel(op_name, factory);
