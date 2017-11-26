@@ -987,7 +987,8 @@ bool MasterImpl::process_job(const proto::BulkJobParameters* job_params,
 
     i64 worker_id = (i64)got_tag;
     VLOG(2) << "Worker " << worker_id << " finished.";
-
+    std::cout << "Worker " << worker_id << " finished.";
+    
     std::unique_lock<std::mutex> lk(work_mutex_);
     if (worker_active_[worker_id] && !replies_[worker_id]->success()) {
       LOG(WARNING) << "Worker " << worker_id

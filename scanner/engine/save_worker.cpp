@@ -30,6 +30,7 @@ using storehouse::RandomReadFile;
 
 namespace scanner {
 namespace internal {
+extern bool global_load_to_disk;
 
 SaveWorker::SaveWorker(const SaveWorkerArgs& args)
     : node_id_(args.node_id), worker_id_(args.worker_id), profiler_(args.profiler) {
@@ -59,7 +60,10 @@ SaveWorker::~SaveWorker() {
 
 void SaveWorker::feed(EvalWorkEntry& input_entry) {
   EvalWorkEntry& work_entry = input_entry;
-
+  printf("In save worker feed\n");
+  if (global_load_to_disk) {
+    return;
+  }
   // Write out each output column to an individual data file
   i32 video_col_idx = 0;
   for (size_t out_idx = 0; out_idx < work_entry.columns.size(); ++out_idx) {
@@ -203,6 +207,10 @@ void SaveWorker::feed(EvalWorkEntry& input_entry) {
 void SaveWorker::new_task(i32 table_id, i32 task_id,
                           std::vector<ColumnType> column_types) {
   auto io_start = now();
+  printf("in SaveWorker new_task\n");
+  if (global_load_to_disk) {
+    return;
+  }
   for (auto& file : output_) {
     file->save();
   }

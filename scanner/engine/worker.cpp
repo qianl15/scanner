@@ -45,6 +45,8 @@ using storehouse::RandomReadFile;
 namespace scanner {
 namespace internal {
 
+bool global_load_to_disk = false;
+
 namespace {
 inline bool operator==(const MemoryPoolConfig& lhs,
                        const MemoryPoolConfig& rhs) {
@@ -119,6 +121,11 @@ std::map<int, bool> no_pipelining_conditions;
 
 void pre_evaluate_driver(EvalQueue& input_work, EvalQueue& output_work,
                          PreEvaluateWorkerArgs args) {
+  // if (global_load_to_disk) {
+  //   Profiler& profiler = args.profiler;
+
+  //   return;
+  // }
   Profiler& profiler = args.profiler;
   PreEvaluateWorker worker(args);
   // We sort inputs into task work queues to ensure we process them
@@ -237,6 +244,9 @@ void pre_evaluate_driver(EvalQueue& input_work, EvalQueue& output_work,
 
 void evaluate_driver(EvalQueue& input_work, EvalQueue& output_work,
                      EvaluateWorkerArgs args) {
+  // if (global_load_to_disk) {
+  //   return;
+  // }
   Profiler& profiler = args.profiler;
   EvaluateWorker worker(args);
   while (true) {
@@ -297,6 +307,9 @@ void evaluate_driver(EvalQueue& input_work, EvalQueue& output_work,
 
 void post_evaluate_driver(EvalQueue& input_work, OutputEvalQueue& output_work,
                           PostEvaluateWorkerArgs args) {
+  // if (global_load_to_disk) {
+  //   return;
+  // }
   Profiler& profiler = args.profiler;
   PostEvaluateWorker worker(args);
   while (true) {
@@ -344,10 +357,14 @@ void post_evaluate_driver(EvalQueue& input_work, OutputEvalQueue& output_work,
 
 void save_coordinator(OutputEvalQueue& eval_work,
                       std::vector<SaveInputQueue>& save_work) {
+  // if (global_load_to_disk) {
+  //   return;
+  // }
   i32 num_save_workers = save_work.size();
   std::map<std::tuple<i32, i32>, i32> task_to_worker_mapping;
   i32 last_worker_assigned = 0;
   while (true) {
+    printf("in save_coordinator\n");
     auto idle_start = now();
 
     std::tuple<i32, EvalWorkEntry> entry;
@@ -375,11 +392,17 @@ void save_coordinator(OutputEvalQueue& eval_work,
       task_to_worker_mapping.erase(job_task_id);
     }
   }
+  printf("Stop save_coordinator\n");
 }
 
 void save_driver(SaveInputQueue& save_work,
                  SaveOutputQueue& output_work,
                  SaveWorkerArgs args) {
+
+  // if (global_load_to_disk) {
+  //   return;
+  // }
+  
   Profiler& profiler = args.profiler;
   SaveWorker worker(args);
 
@@ -387,6 +410,7 @@ void save_driver(SaveInputQueue& save_work,
   i32 active_job = -1;
   i32 active_task = -1;
   while (true) {
+    printf("in save_driver\n");
     auto idle_start = now();
 
     std::tuple<i32, EvalWorkEntry> entry;
@@ -432,7 +456,7 @@ void save_driver(SaveInputQueue& save_work,
                                        work_entry.task_index));
     }
   }
-
+  printf("stop save_driver\n");
   VLOG(1) << "Save (N/KI: " << args.node_id << "/" << args.worker_id
           << "): thread finished ";
 }
@@ -491,6 +515,7 @@ grpc::Status WorkerImpl::NewJob(grpc::ServerContext* context,
   // Ensure that only one job is running at a time and that the worker
   // is in idle mode before transitioning to job start
   // printf("Worker received a NewJob!\n");
+  global_load_to_disk = job_params->load_to_disk();
   State state = state_.get();
   bool ready = false;
   while (!ready) {
@@ -1365,7 +1390,7 @@ grpc::Status WorkerImpl::NewJob(grpc::ServerContext* context,
 
   std::fflush(NULL);
   sync();
-
+  printf("Worker becomes idle\n");
   VLOG(1) << "Worker " << node_id_ << " finished NewJob";
 
   // Set to idle if we finished without a shutdown
