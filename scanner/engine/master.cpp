@@ -609,6 +609,7 @@ void MasterImpl::start_job_processor() {
       if (trigger_shutdown_.raised()) break;
       // Start processing job
       bool result = process_job(&job_params_, &job_result_);
+      // printf("pooling triggered shutdown\n");
     }
   });
 }
@@ -967,7 +968,7 @@ bool MasterImpl::process_job(const proto::BulkJobParameters* job_params,
     for (auto kv : worker_addresses_) {
       i32 worker_id = kv.first;
       std::string& address = kv.second;
-
+      // std::cout << "Worker " << worker_id << " start job. \n";
       start_job_on_worker(worker_id, address);
     }
   }
@@ -987,8 +988,8 @@ bool MasterImpl::process_job(const proto::BulkJobParameters* job_params,
 
     i64 worker_id = (i64)got_tag;
     VLOG(2) << "Worker " << worker_id << " finished.";
-    std::cout << "Worker " << worker_id << " finished.";
-    
+    // std::cout << "Worker " << worker_id << " finished. \n";
+
     std::unique_lock<std::mutex> lk(work_mutex_);
     if (worker_active_[worker_id] && !replies_[worker_id]->success()) {
       LOG(WARNING) << "Worker " << worker_id
@@ -1047,6 +1048,7 @@ bool MasterImpl::process_job(const proto::BulkJobParameters* job_params,
   finished_fn();
 
   VLOG(1) << "Master finished job";
+  // printf("Master finished job\n");
 }
 
 void MasterImpl::start_worker_pinger() {
@@ -1081,7 +1083,7 @@ void MasterImpl::start_worker_pinger() {
     // FIXME(apoms): this sleep is unfortunate because it means a
     //               job must take at least this long. A solution
     //               would be to put it in a separate thread.
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    // std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 }
 

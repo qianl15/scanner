@@ -22,7 +22,6 @@ PreEvaluateWorker::PreEvaluateWorker(const PreEvaluateWorkerArgs& args)
 
 void PreEvaluateWorker::feed(EvalWorkEntry& work_entry, bool first) {
   auto feed_start = now();
-  printf("Start feed in PreEvaluateWorker\n");
   entry_ = work_entry;
 
   needs_configure_ = !(work_entry.job_index == last_job_idx_);
@@ -99,7 +98,6 @@ void PreEvaluateWorker::feed(EvalWorkEntry& work_entry, bool first) {
     }
   }
   
-  printf("End feed in PreEvaluateWorker\n");
   first_item_ = first;
   current_row_ = 0;
   profiler_.add_interval("feed", feed_start, now());
@@ -129,7 +127,6 @@ bool PreEvaluateWorker::yield(i32 item_size,
   entry.last_in_task = work_entry.last_in_task;
   entry.row_ids.resize(work_entry.row_ids.size());
 
-  printf("Start yield in PreEvaluateWorker\n");
   if (!global_load_to_disk) {
     for (size_t c = 0; c < work_entry.columns.size(); ++c) {
       i64 column_start_row =
@@ -182,7 +179,6 @@ bool PreEvaluateWorker::yield(i32 item_size,
   }
   
   profiler_.add_interval("yield", yield_start, now());
-  printf("End yield in PreEvaluateWorker\n");
   current_row_ += item_size;
 
   output_entry = entry;
@@ -269,7 +265,6 @@ void EvaluateWorker::new_task(i64 job_idx, i64 task_idx,
                               const std::vector<TaskStream>& task_streams) {
   job_idx_ = job_idx;
   task_idx_ = task_idx;
-  printf("Start new_task in EvaluateWorker\n");
   for (size_t i = 0; i < task_streams.size(); ++i) {
     for (i64 used_rows : current_valid_input_idx_[i]) {
       assert(valid_input_rows_[i].size() == used_rows);
@@ -351,11 +346,9 @@ void EvaluateWorker::new_task(i64 job_idx, i64 task_idx,
   final_row_ids_.clear();
 
   clear_stencil_cache();
-  printf("End new_task in EvaluateWorker\n");
 }
 
 void EvaluateWorker::feed(EvalWorkEntry& work_entry) {
-  printf("Start feed in EvaluateWorker\n");
   entry_ = work_entry;
 
   auto feed_start = now();
@@ -804,13 +797,11 @@ void EvaluateWorker::feed(EvalWorkEntry& work_entry) {
     }
 
   }
-  printf("End feed in EvaluateWorker\n");
   profiler_.add_interval("feed", feed_start, now());
 }
 
 bool EvaluateWorker::yield(i32 item_size, EvalWorkEntry& output_entry) {
   EvalWorkEntry& work_entry = entry_;
-  printf("Start yield in EvaluateWorker\n");
   auto yield_start = now();
 
   EvalWorkEntry output_work_entry;
@@ -849,7 +840,6 @@ bool EvaluateWorker::yield(i32 item_size, EvalWorkEntry& output_entry) {
   output_entry = output_work_entry;
 
   profiler_.add_interval("yield", yield_start, now());
-  printf("End yield in EvaluateWorker\n");
   return true;
 }
 
@@ -1075,7 +1065,6 @@ void PostEvaluateWorker::feed(EvalWorkEntry& entry) {
 
 bool PostEvaluateWorker::yield(EvalWorkEntry& output) {
   auto yield_start = now();
-  printf("Start yield in PostEvaluateWorker\n");
   bool got_result = false;
   if (buffered_entries_.size() > 0) {
     output = buffered_entries_.front();
@@ -1084,7 +1073,6 @@ bool PostEvaluateWorker::yield(EvalWorkEntry& output) {
   }
 
   profiler_.add_interval("yield", yield_start, now());
-  printf("End yield in PostEvaluateWorker: %d\n", got_result);
   if (global_load_to_disk)
     return true;
   return got_result;

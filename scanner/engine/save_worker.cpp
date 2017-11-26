@@ -60,7 +60,6 @@ SaveWorker::~SaveWorker() {
 
 void SaveWorker::feed(EvalWorkEntry& input_entry) {
   EvalWorkEntry& work_entry = input_entry;
-  printf("In save worker feed\n");
   if (global_load_to_disk) {
     return;
   }
@@ -207,7 +206,6 @@ void SaveWorker::feed(EvalWorkEntry& input_entry) {
 void SaveWorker::new_task(i32 table_id, i32 task_id,
                           std::vector<ColumnType> column_types) {
   auto io_start = now();
-  printf("in SaveWorker new_task\n");
   if (global_load_to_disk) {
     return;
   }

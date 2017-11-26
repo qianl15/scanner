@@ -364,7 +364,7 @@ void save_coordinator(OutputEvalQueue& eval_work,
   std::map<std::tuple<i32, i32>, i32> task_to_worker_mapping;
   i32 last_worker_assigned = 0;
   while (true) {
-    printf("in save_coordinator\n");
+    // printf("in save_coordinator\n");
     auto idle_start = now();
 
     std::tuple<i32, EvalWorkEntry> entry;
@@ -392,7 +392,7 @@ void save_coordinator(OutputEvalQueue& eval_work,
       task_to_worker_mapping.erase(job_task_id);
     }
   }
-  printf("Stop save_coordinator\n");
+  // printf("Stop save_coordinator\n");
 }
 
 void save_driver(SaveInputQueue& save_work,
@@ -410,7 +410,7 @@ void save_driver(SaveInputQueue& save_work,
   i32 active_job = -1;
   i32 active_task = -1;
   while (true) {
-    printf("in save_driver\n");
+    // printf("in save_driver\n");
     auto idle_start = now();
 
     std::tuple<i32, EvalWorkEntry> entry;
@@ -456,7 +456,7 @@ void save_driver(SaveInputQueue& save_work,
                                        work_entry.task_index));
     }
   }
-  printf("stop save_driver\n");
+  // printf("stop save_driver\n");
   VLOG(1) << "Save (N/KI: " << args.node_id << "/" << args.worker_id
           << "): thread finished ";
 }
@@ -841,7 +841,7 @@ grpc::Status WorkerImpl::NewJob(grpc::ServerContext* context,
   int num_threads = 4;
   // omp_set_num_threads(std::thread::hardware_concurrency());
   omp_set_num_threads(num_threads);
-  printf("Number of threads: %d\n", std::thread::hardware_concurrency());
+  printf("hardware_concurrency: %d\n", std::thread::hardware_concurrency());
 
   // Setup shared resources for distributing work to processing threads
   i64 accepted_tasks = 0;
@@ -1390,7 +1390,7 @@ grpc::Status WorkerImpl::NewJob(grpc::ServerContext* context,
 
   std::fflush(NULL);
   sync();
-  printf("Worker becomes idle\n");
+  // printf("Worker becomes idle\n");
   VLOG(1) << "Worker " << node_id_ << " finished NewJob";
 
   // Set to idle if we finished without a shutdown

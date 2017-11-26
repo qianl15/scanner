@@ -1063,7 +1063,9 @@ class Database:
             if result.finished:
                 break
             else:
-                time.sleep(1.0)
+                # Qian: no sleep!!
+                # time.sleep(1.0)
+                pass
 
         if not result.result.success:
             raise ScannerException(result.result.msg)
