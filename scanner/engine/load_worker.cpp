@@ -341,7 +341,7 @@ void writeDecodeArgsAndBufferToDisk(proto::DecodeArgs& decode_args, u8* buffer, 
   
   // Write the new address book back to disk.
   std::string start_frame_str = std::to_string(start_frame);
-  std::cout << "writing decode_args and buffer for start frame " << start_frame_str << std::endl;
+  // std::cout << "writing decode_args and buffer for start frame " << start_frame_str << std::endl;
   std::fstream outputDecodeArgs("decode_args" + start_frame_str + ".proto",
         std::ios::out | std::ios::trunc | std::ios::binary);
   if (!decode_args.SerializeToOstream(&outputDecodeArgs)) {
