@@ -1076,7 +1076,7 @@ class Database:
                 break
             else:
                 # Qian: no sleep!!
-                # time.sleep(1.0)
+                time.sleep(1.0)
                 pass
 
         if not result.result.success:

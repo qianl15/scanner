@@ -1098,7 +1098,7 @@ void MasterImpl::start_worker_pinger() {
     // FIXME(apoms): this sleep is unfortunate because it means a
     //               job must take at least this long. A solution
     //               would be to put it in a separate thread.
-    // std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::seconds(5));
   }
 }
 
