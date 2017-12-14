@@ -1,3 +1,4 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
 import logging as log
 import numpy as np
 import enum
@@ -21,6 +22,12 @@ class DeviceType(enum.Enum):
             return protobufs.GPU
         else:
             raise ScannerException('Invalid device type')
+
+
+class DeviceHandle(object):
+    def __init__(self, device, device_id):
+        self.device = device
+        self.device_id = device_id
 
 
 class ColumnType(enum.Enum):

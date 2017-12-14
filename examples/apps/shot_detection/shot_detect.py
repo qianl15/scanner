@@ -7,7 +7,7 @@ import cv2
 import math
 import sys
 import os.path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/..')
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../..')
 import util
 import time
 
@@ -19,14 +19,6 @@ except ImportError:
     exit()
 
 WINDOW_SIZE = 500
-
-def have_gpu():
-    try:
-        run(['nvidia-smi'])
-        return True
-    except OSError:
-        return False
-
 
 def compute_shot_boundaries(hists):
     # Compute the mean difference between each pair of adjacent frames
@@ -75,26 +67,21 @@ def make_monrage(n, frames):
 
     return img
 
-def main():
+def main(movie_path):
     total_start = time.time()
-
-    #movie_path = util.download_video() if len(sys.argv) <= 1 else sys.argv[1]
-    #movie_path = '/n/scanner/datasets/movies/private/kubo_and_the_two_strings_2016.mp4'
-    movie_path = util.download_video()
 
     print('Detecting shots in movie {}'.format(movie_path))
     movie_name = os.path.basename(movie_path)
 
     # Use GPU kernels if we have a GPU
-    if have_gpu():
-        device = DeviceType.GPU
-    else:
-        device = DeviceType.CPU
-
-    device = DeviceType.CPU
     with Database() as db:
         print('Loading movie into Scanner database...')
         s = time.time()
+
+        if db.has_gpu():
+            device = DeviceType.GPU
+        else:
+            device = DeviceType.CPU
 
         ############ ############ ############ ############
         # 0. Ingest the video into the database
@@ -203,4 +190,7 @@ def main():
         print('Total time: {:.2f} s'.format(time.time() - total_start))
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) <= 1:
+        print('Usage: main.py <video_file>')
+        exit(1)
+    main(sys.argv[1])

@@ -1,6 +1,8 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
 import struct
 import json
-from common import *
+
+from scannerpy.common import *
 
 
 def read_advance(fmt, buf, offset):
@@ -178,7 +180,7 @@ class Profiler:
         }, offset
 
     def _parse_profiler_file(self, profiler_path):
-        bytes_buffer = self._storage.read(profiler_path)
+        bytes_buffer = self._storage.read(profiler_path.encode('ascii'))
         offset = 0
         # Read start and end time intervals
         t, offset = read_advance('q', bytes_buffer, offset)

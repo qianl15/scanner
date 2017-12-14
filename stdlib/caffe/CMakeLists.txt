@@ -3,6 +3,8 @@ set(SOURCE_FILES
   caffe_kernel_cpu.cpp
   caffe_input_kernel.cpp
   caffe_input_kernel_cpu.cpp
+  facenet_input_kernel_cpu.cpp
+  facenet_kernel.cpp
   facenet_output_kernel_cpu.cpp
   yolo_output_kernel_cpu.cpp
   faster_rcnn_kernel.cpp
@@ -11,18 +13,15 @@ if (BUILD_CUDA)
   list(APPEND SOURCE_FILES
     caffe_kernel_gpu.cpp
     caffe_input_kernel_gpu.cpp
-    facenet_input_kernel_gpu.cpp
-    facenet_kernel.cpp)
+    facenet_input_kernel_gpu.cpp)
 endif()
 
-if (BUILD_CPM2_OPS)
-  list(APPEND SOURCE_FILES
-    cpm2_output_kernel_cpu.cpp)
-  if (BUILD_CUDA)
-    list(APPEND SOURCE_FILES
-      cpm2_input_kernel_gpu.cpp
-      cpm2_kernel.cpp)
+if (BUILD_OPENPOSE_OPS)
+  if (NOT BUILD_CUDA)
+    # TODO(apoms): add warning
   endif()
+  list(APPEND SOURCE_FILES
+    openpose_kernel.cpp)
 endif()
 
 add_halide_target(caffe_input_transformer_cpu.cpp host)

@@ -1,3 +1,5 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import scannerpy
 import scannerpy.stdlib.parsers as parsers
 import scannerpy.stdlib.writers as writers
@@ -7,7 +9,7 @@ class BBoxNMSKernel(scannerpy.Kernel):
     def __init__(self, config, protobufs):
         self.protobufs = protobufs
         args = protobufs.BBoxNMSArgs()
-        args.ParseFromString(config)
+        args.ParseFromString(config.args)
         self.scale = args.scale
 
     def close(self):
