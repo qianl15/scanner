@@ -202,17 +202,48 @@ EvaluateWorker::EvaluateWorker(const EvaluateWorkerArgs& args)
       KernelFactory* factory = std::get<0>(arg_group_.kernel_factories[i]);
       if (factory == nullptr) {
         kernel_devices_.push_back(last_device);
+        kernel_input_devices_.push_back({last_device});
+        kernel_output_devices_.push_back({last_device});
         kernel_num_outputs_.push_back(1);
         kernels_.emplace_back(nullptr);
         continue;
       }
+      OpInfo* op_info = registry->get_op_info(factory->get_op_name());
       const KernelConfig& config = std::get<1>(arg_group_.kernel_factories[i]);
       kernel_devices_.push_back(config.devices[0]);
+      kernel_input_devices_.emplace_back();
+      if (op_info->variadic_inputs()) {
+        DeviceHandle handle = config.devices[0];
+        for (int i = 0; i < config.input_columns.size(); ++i) {
+          kernel_input_devices_.back().push_back(handle);
+        }
+      } else {
+        const auto& input_devices = factory->get_input_devices();
+        for (const auto& in_col : op_info->input_columns()) {
+          const auto& col_name = in_col.name();
+          DeviceType type = config.devices[0].type;
+          if (input_devices.count(col_name)) {
+            type = input_devices.at(col_name);
+          }
+          kernel_input_devices_.back().push_back(
+              DeviceHandle{type, config.devices[0].id});
+        }
+      }
+      kernel_output_devices_.emplace_back();
+      {
+        const auto& output_devices = factory->get_output_devices();
+        for (const auto& out_col : op_info->output_columns()) {
+          const auto& col_name = out_col.name();
+          DeviceType type = config.devices[0].type;
+          if (output_devices.count(col_name)) {
+            type = output_devices.at(col_name);
+          }
+          kernel_output_devices_.back().push_back(
+              DeviceHandle{type, config.devices[0].id});
+        }
+      }
       last_device = config.devices[0];
-      kernel_num_outputs_.push_back(
-          registry->get_op_info(factory->get_op_name())
-              ->output_columns()
-              .size());
+      kernel_num_outputs_.push_back(op_info->output_columns().size());
 
 #ifdef HAVE_CUDA
       cudaSetDevice(0);
@@ -221,7 +252,7 @@ EvaluateWorker::EvaluateWorker(const EvaluateWorkerArgs& args)
       kernel->validate(&args.result);
       VLOG(1) << "Kernel finished validation " << args.result.success();
       if (!args.result.success()) {
-        VLOG(1) << "Kernel validate failed: " << args.result.msg();
+        LOG(ERROR) << "Kernel validate failed: " << args.result.msg();
         THREAD_RETURN_SUCCESS();
       }
       kernels_.emplace_back(kernel);
@@ -360,442 +391,471 @@ void EvaluateWorker::feed(EvalWorkEntry& work_entry) {
         std::max(total_inputs_, (i32)work_entry.columns[i].size());
   }
 
-  if (!global_load_to_disk) {
-    std::vector<DeviceHandle> side_output_handles = work_entry.column_handles;
-    BatchedColumns side_output_columns = work_entry.columns;
-    std::vector<std::vector<i64>> side_row_ids = work_entry.row_ids;
+  if (global_load_to_disk) {
+    profiler_.add_interval("feed", feed_start, now());
+    return;
+  }
+  std::vector<DeviceHandle> side_output_handles = work_entry.column_handles;
+  BatchedColumns side_output_columns = work_entry.columns;
+  std::vector<std::vector<i64>> side_row_ids = work_entry.row_ids;
 
-    // For each kernel, produce as much output as can be produced given current
-    // input rows and stencil cache.
-    for (size_t k = 0; k < arg_group_.op_names.size(); ++k) {
-      const std::string& op_name = arg_group_.op_names.at(k);
-      DeviceHandle current_handle = kernel_devices_[k];
+  // For each kernel, produce as much output as can be produced given current
+  // input rows and stencil cache.
+  for (size_t k = 0; k < arg_group_.op_names.size(); ++k) {
+    const std::string& op_name = arg_group_.op_names.at(k);
+    DeviceHandle current_handle = kernel_devices_[k];
+    const std::vector<DeviceHandle>& current_input_handles =
+        kernel_input_devices_[k];
+    const std::vector<DeviceHandle>& current_output_handles =
+        kernel_output_devices_[k];
 
-      std::vector<i64>& kernel_valid_input_rows = valid_input_rows_[k];
-      std::set<i64>& kernel_valid_input_rows_set = valid_input_rows_set_[k];
-      std::vector<i64>& kernel_current_input_idx = current_valid_input_idx_[k];
+    std::vector<i64>& kernel_valid_input_rows = valid_input_rows_[k];
+    std::set<i64>& kernel_valid_input_rows_set = valid_input_rows_set_[k];
+    std::vector<i64>& kernel_current_input_idx = current_valid_input_idx_[k];
 
-      std::vector<i64>& kernel_compute_rows = compute_rows_[k];
-      i64& kernel_current_compute_idx = current_compute_idx_[k];
+    std::vector<i64>& kernel_compute_rows = compute_rows_[k];
+    i64& kernel_current_compute_idx = current_compute_idx_[k];
 
-      std::vector<i64>& kernel_valid_output_rows = valid_output_rows_[k];
-      std::set<i64>& kernel_valid_output_rows_set = valid_output_rows_set_[k];
-      i64& kernel_current_output_idx = current_valid_output_idx_[k];
+    std::vector<i64>& kernel_valid_output_rows = valid_output_rows_[k];
+    std::set<i64>& kernel_valid_output_rows_set = valid_output_rows_set_[k];
+    i64& kernel_current_output_idx = current_valid_output_idx_[k];
 
-      i64& kernel_element_cache_input_idx = current_element_cache_input_idx_[k];
-      std::vector<std::deque<Element>>& kernel_cache = element_cache_[k];
-      std::vector<DeviceHandle>& kernel_cache_devices = element_cache_devices_[k];
-      std::vector<std::deque<i64>>& kernel_cache_row_ids =
-          element_cache_row_ids_[k];
-      std::vector<i32>& input_column_idx = arg_group_.column_mapping[k];
-      std::set<i32>& input_column_idx_set = column_mapping_set_[k];
+    i64& kernel_element_cache_input_idx = current_element_cache_input_idx_[k];
+    std::vector<std::deque<Element>>& kernel_cache = element_cache_[k];
+    std::vector<DeviceHandle>& kernel_cache_devices = element_cache_devices_[k];
+    std::vector<std::deque<i64>>& kernel_cache_row_ids =
+        element_cache_row_ids_[k];
+    std::vector<i32>& input_column_idx = arg_group_.column_mapping[k];
+    std::set<i32>& input_column_idx_set = column_mapping_set_[k];
 
-      // Since inputs can arrive at different rates, we need to keep
-      // inputs around until they have been used.
-      // Place all new input elements in side output columns into intermediate
-      // cache. If different device, move all required values in the side output
-      // columns to the proper device for this kernel
-      if (kernel_cache_devices.empty()) {
-        for (i32 i = 0; i < input_column_idx.size(); ++i) {
-          kernel_cache_devices.push_back(current_handle);
-        }
-      }
+    // Since inputs can arrive at different rates, we need to keep
+    // inputs around until they have been used.
+    // Place all new input elements in side output columns into intermediate
+    // cache. If different device, move all required values in the side output
+    // columns to the proper device for this kernel
+    assert(op_name == INPUT_OP_NAME ||
+           current_input_handles.size() == input_column_idx.size());
+    if (kernel_cache_devices.empty()) {
       for (i32 i = 0; i < input_column_idx.size(); ++i) {
-        i32 in_col_idx = input_column_idx[i];
-        assert(in_col_idx < side_output_columns.size());
-        // Select elements which this kernel requires as inputs
-        auto& row_ids = side_row_ids[in_col_idx];
-        ElementList valid_inputs;
-        i64& current_input_idx = kernel_current_input_idx[i];
-        for (size_t r = 0; r < row_ids.size(); ++r) {
-          assert(row_ids[r] <= kernel_valid_input_rows[current_input_idx]);
-          if (row_ids[r] == kernel_valid_input_rows[current_input_idx]) {
-            // Insert row ids for valid elements into cache
-            kernel_cache_row_ids[i].push_back(row_ids[r]);
-            Element element(side_output_columns[in_col_idx][r]);
-            // We provide the input index to the kernel so that it can detect
-            // non-consecutive elements
-            element.index = row_ids[r];
-            valid_inputs.push_back(element);
-            current_input_idx++;
-          }
-        }
-        if (valid_inputs.size() > 0) {
-          auto copy_start = now();
-          ElementList list =
-              copy_or_ref_elements(profiler_, side_output_handles[in_col_idx],
-                                   current_handle, valid_inputs);
-          profiler_.add_interval("op_marshal", copy_start, now());
-          // Insert new elements into cache
-          kernel_cache[i].insert(kernel_cache[i].end(), list.begin(), list.end());
+        kernel_cache_devices.push_back(current_input_handles[i]);
+      }
+    }
+    for (i32 i = 0; i < input_column_idx.size(); ++i) {
+      i32 in_col_idx = input_column_idx[i];
+      assert(in_col_idx < side_output_columns.size());
+      // Select elements which this kernel requires as inputs
+      auto& row_ids = side_row_ids[in_col_idx];
+      ElementList valid_inputs;
+      i64& current_input_idx = kernel_current_input_idx[i];
+      for (size_t r = 0; r < row_ids.size(); ++r) {
+        assert(current_input_idx >= kernel_valid_input_rows.size() ||
+               row_ids[r] <= kernel_valid_input_rows[current_input_idx]);
+        if (current_input_idx < kernel_valid_input_rows.size() &&
+            row_ids[r] == kernel_valid_input_rows[current_input_idx]) {
+          // Insert row ids for valid elements into cache
+          kernel_cache_row_ids[i].push_back(row_ids[r]);
+          Element element(side_output_columns[in_col_idx][r]);
+          // We provide the input index to the kernel so that it can detect
+          // non-consecutive elements
+          element.index = row_ids[r];
+          valid_inputs.push_back(element);
+          current_input_idx++;
         }
       }
-      // Determine the highest row seen so we know how many elements we
-      // might be able to produce
-      i64 max_row_id_seen = -1;
-      if (input_column_idx.size() > 0 && kernel_cache_row_ids[0].size() > 0) {
-        max_row_id_seen = kernel_cache_row_ids[0].back();
-        for (i32 i = 1; i < input_column_idx.size(); ++i) {
-          max_row_id_seen =
-              std::min(max_row_id_seen, kernel_cache_row_ids[i].back());
-        }
-        // Update current compute position
-        for (i64 i = 0; i < kernel_cache_row_ids[0].size(); ++i) {
-          i64 row_id = kernel_cache_row_ids[0][i];
-          assert(row_id <= kernel_compute_rows[kernel_current_compute_idx]);
-          if (row_id == kernel_compute_rows[kernel_current_compute_idx]) {
-            kernel_current_compute_idx++;
-          }
+      if (valid_inputs.size() > 0) {
+        auto copy_start = now();
+        ElementList list =
+            copy_or_ref_elements(profiler_, side_output_handles[in_col_idx],
+                                 current_input_handles[i], valid_inputs);
+        profiler_.add_interval("op_marshal", copy_start, now());
+        // Insert new elements into cache
+        kernel_cache[i].insert(kernel_cache[i].end(), list.begin(), list.end());
+      }
+    }
+    // Determine the highest row seen so we know how many elements we
+    // might be able to produce
+    i64 max_row_id_seen = -1;
+    if (input_column_idx.size() > 0 && kernel_cache_row_ids[0].size() > 0) {
+      max_row_id_seen = kernel_cache_row_ids[0].back();
+      for (i32 i = 1; i < input_column_idx.size(); ++i) {
+        max_row_id_seen =
+            std::min(max_row_id_seen, kernel_cache_row_ids[i].back());
+      }
+      // Update current compute position
+      for (i64 i = 0; i < kernel_cache_row_ids[0].size(); ++i) {
+        i64 row_id = kernel_cache_row_ids[0][i];
+        assert(kernel_current_compute_idx >= kernel_compute_rows.size() ||
+               row_id <= kernel_compute_rows[kernel_current_compute_idx]);
+        if (kernel_current_compute_idx < kernel_compute_rows.size() &&
+            row_id == kernel_compute_rows[kernel_current_compute_idx]) {
+          kernel_current_compute_idx++;
         }
       }
+    }
 
-      // Figure out how many elements can be produced
-      auto compute_producible_elements =
-          [kernel_element_cache_input_idx, kernel_current_compute_idx,
-           &kernel_compute_rows, max_row_id_seen](i64 stencil, i64 batch) {
-            i64 producible_rows = 0;
-            for (i64 i = kernel_element_cache_input_idx;
-                 i < kernel_current_compute_idx; ++i) {
-              i64 row = kernel_compute_rows[i];
-              // Check if this row was seen by all inputs
-              if (row + stencil > max_row_id_seen) {
-                break;
-              }
-              producible_rows++;
+    // Figure out how many elements can be produced
+    auto compute_producible_elements =
+        [kernel_element_cache_input_idx, kernel_current_compute_idx,
+         &kernel_compute_rows, max_row_id_seen](i64 stencil, i64 batch) {
+          i64 producible_rows = 0;
+          for (i64 i = kernel_element_cache_input_idx;
+               i < kernel_current_compute_idx; ++i) {
+            i64 row = kernel_compute_rows[i];
+            // Check if this row was seen by all inputs
+            if (row + stencil > max_row_id_seen) {
+              break;
             }
-            i64 batch_over = producible_rows % batch;
-            return producible_rows - batch_over;
-          };
+            producible_rows++;
+          }
+          i64 batch_over = producible_rows % batch;
+          return producible_rows - batch_over;
+        };
 
-      // NOTE(apoms): the number of producible rows should be a multiple of the
-      // batch size (if not zero). If not, then this should be the last batch
-      // in the task we should add an assert to verify this is the case.
-      i64 producible_elements = 0;
-      i32 num_output_columns = 0;
-      std::vector<i32> kernel_stencil;
-      if (is_builtin_op(op_name)) {
-        producible_elements = compute_producible_elements(0, 1);
-        num_output_columns = 1;
-        kernel_stencil = {0};
-        if (op_name == INPUT_OP_NAME) {
-          num_output_columns = 0;
-        }
-      } else {
-        kernel_stencil = arg_group_.kernel_stencils[k];
-        i32 kernel_batch_size = arg_group_.kernel_batch_sizes[k];
-
-        i64 bs = kernel_batch_size;
-        // If end of task, we set batch size to 1 to get all remaining elements
-        assert(kernel_current_input_idx.size() > 0);
-        i64 rows_left_in_task =
-            kernel_valid_input_rows.size() - kernel_current_input_idx[0];
-        if (rows_left_in_task < kernel_batch_size) {
-          bs = 1;
-        }
-        producible_elements =
-            compute_producible_elements(kernel_stencil.back(), bs);
-
-        auto& unused_outputs = arg_group_.unused_outputs[k];
-        num_output_columns = kernel_num_outputs_[k] - unused_outputs.size();
+    // NOTE(apoms): the number of producible rows should be a multiple of the
+    // batch size (if not zero). If not, then this should be the last batch
+    // in the task we should add an assert to verify this is the case.
+    i64 producible_elements = 0;
+    i32 num_output_columns = 0;
+    std::vector<i32> kernel_stencil;
+    if (is_builtin_op(op_name)) {
+      producible_elements = compute_producible_elements(0, 1);
+      num_output_columns = 1;
+      kernel_stencil = {0};
+      if (op_name == INPUT_OP_NAME) {
+        num_output_columns = 0;
       }
+    } else {
+      kernel_stencil = arg_group_.kernel_stencils[k];
+      i32 kernel_batch_size = arg_group_.kernel_batch_sizes[k];
 
-      // Grab row ids corresponding to producible elements by walking through
-      // element cache
-      // NOTE(apoms): elements in kernel cache from each column should be the same
-      // since the input domain for all inputs to a kernel must be the same
-      std::vector<i64> producible_row_ids(
-          kernel_compute_rows.begin() + kernel_element_cache_input_idx,
-          kernel_compute_rows.begin() + kernel_element_cache_input_idx +
-              producible_elements);
+      i64 bs = kernel_batch_size;
+      // If end of task, we set batch size to 1 to get all remaining elements
+      assert(kernel_current_input_idx.size() > 0);
+      i64 rows_left_in_task =
+          kernel_valid_input_rows.size() - kernel_current_input_idx[0];
+      if (rows_left_in_task < kernel_batch_size) {
+        bs = 1;
+      }
+      producible_elements =
+          compute_producible_elements(kernel_stencil.back(), bs);
 
+      auto& unused_outputs = arg_group_.unused_outputs[k];
+      num_output_columns = kernel_num_outputs_[k] - unused_outputs.size();
+    }
+
+    // Grab row ids corresponding to producible elements by walking through
+    // element cache
+    // NOTE(apoms): elements in kernel cache from each column should be the same
+    // since the input domain for all inputs to a kernel must be the same
+    std::vector<i64> producible_row_ids(
+        kernel_compute_rows.begin() + kernel_element_cache_input_idx,
+        kernel_compute_rows.begin() + kernel_element_cache_input_idx +
+            producible_elements);
+
+    {
+      // Get the output handles for only the columns that are used
+      std::vector<DeviceHandle> used_output_column_handles;
+      auto& unused_outputs = arg_group_.unused_outputs[k];
+      for (i32 c = 0; c < kernel_num_outputs_[k]; ++c) {
+        bool found = false;
+        for (int i = 0; i < unused_outputs.size(); ++i) {
+          if (c == unused_outputs[i]) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          used_output_column_handles.push_back(current_output_handles[c]);
+        }
+      }
       for (i32 c = 0; c < num_output_columns; ++c) {
-        side_output_handles.push_back(current_handle);
+        side_output_handles.push_back(used_output_column_handles[c]);
         side_output_columns.emplace_back();
         side_row_ids.emplace_back();
       }
+    }
 
-      if (op_name == INPUT_OP_NAME) {
-        // Should ignore it since we remapped inputs
-      } else if (op_name == SAMPLE_OP_NAME) {
-        // Filter and remap row ids
-        auto& sampler = domain_samplers_.at(k);
-        // For each available input, check if it maps to a valid downstream
-        // element
-        std::vector<i64> downstream_rows;
-        std::vector<i64> downstream_upstream_mapping;
-        Result result = sampler->get_downstream_rows(
-            producible_row_ids, downstream_rows, downstream_upstream_mapping);
-        if (!result.success()) {
-          VLOG(1) << "Sampler failed: " << result.msg();
-          THREAD_RETURN_SUCCESS();
-        }
+    if (op_name == INPUT_OP_NAME) {
+      // Should ignore it since we remapped inputs
+    } else if (op_name == SAMPLE_OP_NAME) {
+      // Filter and remap row ids
+      auto& sampler = domain_samplers_.at(k);
+      // For each available input, check if it maps to a valid downstream
+      // element
+      std::vector<i64> downstream_rows;
+      std::vector<i64> downstream_upstream_mapping;
+      Result result = sampler->get_downstream_rows(
+          producible_row_ids, downstream_rows, downstream_upstream_mapping);
+      if (!result.success()) {
+        VLOG(1) << "Sampler failed: " << result.msg();
+        THREAD_RETURN_SUCCESS();
+      }
 
-        // Pass down rows and ref elements
-        auto& output_column = side_output_columns.back();
-        for (size_t i = 0; i < downstream_rows.size(); ++i) {
-          i64 upstream_row_idx = downstream_upstream_mapping[i];
+      // Pass down rows and ref elements
+      auto& output_column = side_output_columns.back();
+      for (size_t i = 0; i < downstream_rows.size(); ++i) {
+        i64 upstream_row_idx = downstream_upstream_mapping[i];
+        auto& element = *(kernel_cache.at(0).begin() + upstream_row_idx);
+        Element ele = add_element_ref(current_handle, element);
+        output_column.push_back(ele);
+      }
+      side_row_ids.back() = downstream_rows;
+    } else if (op_name == SPACE_OP_NAME) {
+      // Space and remap row ids
+      auto& sampler = domain_samplers_.at(k);
+      std::vector<i64> downstream_rows;
+      std::vector<i64> downstream_upstream_mapping;
+      Result result = sampler->get_downstream_rows(
+          producible_row_ids, downstream_rows, downstream_upstream_mapping);
+      if (!result.success()) {
+        VLOG(1) << "Sampler failed: " << result.msg();
+        THREAD_RETURN_SUCCESS();
+      }
+      // For each available input, expand it by placing nulls or repeats
+      auto& output_column = side_output_columns.back();
+      for (size_t i = 0; i < downstream_rows.size(); ++i) {
+        i64 upstream_row_idx = downstream_upstream_mapping[i];
+        if (upstream_row_idx == -1) {
+          // Put null element
+          output_column.emplace_back();
+        } else {
           auto& element = *(kernel_cache.at(0).begin() + upstream_row_idx);
           Element ele = add_element_ref(current_handle, element);
           output_column.push_back(ele);
         }
-        side_row_ids.back() = downstream_rows;
-      } else if (op_name == SPACE_OP_NAME) {
-        // Space and remap row ids
-        auto& sampler = domain_samplers_.at(k);
-        std::vector<i64> downstream_rows;
-        std::vector<i64> downstream_upstream_mapping;
-        Result result = sampler->get_downstream_rows(
-            producible_row_ids, downstream_rows, downstream_upstream_mapping);
-        if (!result.success()) {
-          VLOG(1) << "Sampler failed: " << result.msg();
-          THREAD_RETURN_SUCCESS();
-        }
-        // For each available input, expand it by placing nulls or repeats
-        auto& output_column = side_output_columns.back();
-        for (size_t i = 0; i < downstream_rows.size(); ++i) {
-          i64 upstream_row_idx = downstream_upstream_mapping[i];
-          if (upstream_row_idx == -1) {
-            // Put null element
-            output_column.emplace_back();
-          } else {
-            auto& element = *(kernel_cache.at(0).begin() + upstream_row_idx);
-            Element ele = add_element_ref(current_handle, element);
-            output_column.push_back(ele);
-          }
-        }
-        side_row_ids.back() = downstream_rows;
-      } else if (op_name == SLICE_OP_NAME) {
-        // Remap row ids from original domain to sub domain
-        const auto& slice_output_counts =
-            arg_group_.slice_output_rows.at(k).at(job_idx_);
-        i64 offset = 0;
-        for (i64 i = 0; i < slice_group_; ++i) {
-          offset += slice_output_counts.at(i);
-        }
-        // For each row id, remap it and keep output element the same
-        auto& output_column = side_output_columns.back();
-        auto& output_row_ids = side_row_ids.back();
-        for (size_t i = 0; i < producible_row_ids.size(); ++i) {
-          output_row_ids.push_back(producible_row_ids[i] - offset);
-          auto& element = *(kernel_cache.at(0).begin() + i);
-          Element ele = add_element_ref(current_handle, element);
-          output_column.push_back(ele);
-        }
-      } else if (op_name == UNSLICE_OP_NAME) {
-        // Remap row ids from sub domain to original domain
-        const auto& unslice_input_counts =
-            arg_group_.unslice_input_rows.at(k).at(job_idx_);
-        i64 offset = 0;
-        for (i64 i = 0; i < slice_group_; ++i) {
-          offset += unslice_input_counts.at(i);
-        }
-        // For each row id, remap it and keep output element the same
-        auto& output_column = side_output_columns.back();
-        auto& output_row_ids = side_row_ids.back();
-        for (size_t i = 0; i < producible_row_ids.size(); ++i) {
-          output_row_ids.push_back(producible_row_ids[i] + offset);
-          auto& element = *(kernel_cache.at(0).begin() + i);
-          Element ele = add_element_ref(current_handle, element);
-          output_column.push_back(ele);
-        }
-      } else {
-        assert(!is_builtin_op(op_name));
-        // If a regular kernel
-        DeviceHandle current_handle = kernel_devices_[k];
-        std::unique_ptr<BaseKernel>& kernel = kernels_[k];
-        i32 kernel_batch_size = arg_group_.kernel_batch_sizes[k];
-        i64 row_start = kernel_element_cache_input_idx;
-        i64 row_end = row_start + producible_elements;
-
-        for (i32 start = row_start; start < row_end; start += kernel_batch_size) {
-          i32 batch = std::min((i64)kernel_batch_size, row_end - start);
-          i32 end = start + batch;
-          // Stage inputs to the kernel using the stencil cache
-          StenciledBatchedColumns input_columns(input_column_idx.size());
-          // For each column
-          // NOTE(apoms): choosing the first columns row ids is fine because all
-          // input row ids for each column should be the same since all inputs
-          // must have the same domain
-          auto& cache_row_deque = kernel_cache_row_ids[0];
-          for (size_t i = 0; i < input_column_idx.size(); ++i) {
-            auto& cache_deque = kernel_cache[i];
-            auto& col = input_columns[i];
-            col.resize(batch);
-            // For each batch element
-            for (i64 r = start; r < end; ++r) {
-              auto& input_stencil = col[r - start];
-              i64 last_cache_element = 0;
-              // Place elements in "stencil" dimension of input columns
-              i64 curr_row = kernel_compute_rows[r];
-              for (i64 s : kernel_stencil) {
-                i64 desired_row = curr_row + s;
-                // Search for desired stencil element
-                for (; last_cache_element < cache_row_deque.size();
-                     ++last_cache_element) {
-                  i64 cache_row_id = cache_row_deque[last_cache_element];
-                  if (desired_row == cache_row_id) {
-                    input_stencil.push_back(cache_deque[last_cache_element]);
-                    break;
-                  }
-                }
-              }
-              assert(input_stencil.size() == kernel_stencil.size());
-            }
-          }
-
-          // Setup output buffers to receive op output
-          DeviceHandle output_handle = current_handle;
-          BatchedColumns output_columns;
-          output_columns.resize(num_output_columns);
-
-          // Map from previous output columns to the set of input columns needed
-          // by the kernel
-          auto eval_start = now();
-          kernel->execute_kernel(input_columns, output_columns);
-          profiler_.add_interval("evaluate:" + op_name, eval_start, now());
-
-          // Delete unused output columns
-          auto& unused_outputs = arg_group_.unused_outputs[k];
-          for (size_t y = 0; y < unused_outputs.size(); ++y) {
-            i32 unused_col_idx =
-                unused_outputs[unused_outputs.size() - 1 - y];
-            ElementList& column = output_columns[unused_col_idx];
-            for (Element& element : column) {
-              delete_element(current_handle, element);
-            }
-            output_columns.erase(output_columns.begin() + unused_col_idx);
-          }
-
-          // Verify the kernel produced the correct amount of output
-          for (size_t i = 0; i < output_columns.size(); ++i) {
-            LOG_IF(FATAL, output_columns[i].size() != batch)
-                << "Op " << k << " produced " << output_columns[i].size()
-                << " output elements for column " << i << ". Expected " << batch
-                << " outputs.";
-          }
-
-          // Add new output columns
-          for (size_t cidx = 0; cidx < output_columns.size(); ++cidx) {
-            const ElementList& column = output_columns[cidx];
-            i32 col_idx = side_output_columns.size() - num_output_columns + cidx;
-            side_output_columns[col_idx].insert(
-                side_output_columns[col_idx].end(), column.begin(), column.end());
-            auto& output_row_ids = side_row_ids[col_idx];
-            output_row_ids.insert(
-                output_row_ids.end(),
-                producible_row_ids.begin() + start - row_start,
-                producible_row_ids.begin() + start - row_start + batch);
-          }
-        }
       }
-
+      side_row_ids.back() = downstream_rows;
+    } else if (op_name == SLICE_OP_NAME) {
+      // Remap row ids from original domain to sub domain
+      const auto& slice_output_counts =
+          arg_group_.slice_output_rows.at(k).at(job_idx_);
+      i64 offset = 0;
+      for (i64 i = 0; i < slice_group_; ++i) {
+        offset += slice_output_counts.at(i);
+      }
+      // For each row id, remap it and keep output element the same
+      auto& output_column = side_output_columns.back();
+      auto& output_row_ids = side_row_ids.back();
+      for (size_t i = 0; i < producible_row_ids.size(); ++i) {
+        output_row_ids.push_back(producible_row_ids[i] - offset);
+        auto& element = *(kernel_cache.at(0).begin() + i);
+        Element ele = add_element_ref(current_handle, element);
+        output_column.push_back(ele);
+      }
+    } else if (op_name == UNSLICE_OP_NAME) {
+      // Remap row ids from sub domain to original domain
+      const auto& unslice_input_counts =
+          arg_group_.unslice_input_rows.at(k).at(job_idx_);
+      i64 offset = 0;
+      for (i64 i = 0; i < slice_group_; ++i) {
+        offset += unslice_input_counts.at(i);
+      }
+      // For each row id, remap it and keep output element the same
+      auto& output_column = side_output_columns.back();
+      auto& output_row_ids = side_row_ids.back();
+      for (size_t i = 0; i < producible_row_ids.size(); ++i) {
+        output_row_ids.push_back(producible_row_ids[i] + offset);
+        auto& element = *(kernel_cache.at(0).begin() + i);
+        Element ele = add_element_ref(current_handle, element);
+        output_column.push_back(ele);
+      }
+    } else {
+      assert(!is_builtin_op(op_name));
+      // If a regular kernel
+      std::unique_ptr<BaseKernel>& kernel = kernels_[k];
+      i32 kernel_batch_size = arg_group_.kernel_batch_sizes[k];
       i64 row_start = kernel_element_cache_input_idx;
       i64 row_end = row_start + producible_elements;
-      // Filter outputs to only the ones that will be used downstream
-      // For each output row, check if it is in the valid output rows
-      if (num_output_columns > 0) {
-        BatchedColumns temp_output_columns(num_output_columns);
-        std::vector<std::vector<i64>> temp_row_ids(num_output_columns);
 
-        // For each column, transfer all valid rows to temp output, deleting all
-        // the non valid rows, and then swap the temp rows into the side
-        // output columns
-        i32 first_col_idx = side_output_columns.size() - num_output_columns;
-        for (i64 row_start = 0;
-             row_start < side_output_columns[first_col_idx].size(); ++row_start) {
-          assert(!side_row_ids[first_col_idx].empty());
-          // assert(side_row_ids[first_col_idx][row_start] <=
-          //        kernel_valid_output_rows[kernel_current_output_idx]);
-          if (kernel_current_output_idx < kernel_valid_output_rows.size() &&
-              side_row_ids[first_col_idx][row_start] ==
-                  kernel_valid_output_rows[kernel_current_output_idx]) {
-            i64 next_row = kernel_valid_output_rows[kernel_current_output_idx];
-            // Is a valid row, so keep
-            for (i64 i = 0; i < num_output_columns; ++i) {
-              i32 col_idx = side_output_columns.size() - num_output_columns + i;
-              auto& element = side_output_columns[col_idx][row_start];
-              temp_output_columns[i].push_back(element);
-              temp_row_ids[i].push_back(next_row);
+      for (i32 start = row_start; start < row_end; start += kernel_batch_size) {
+        i32 batch = std::min((i64)kernel_batch_size, row_end - start);
+        i32 end = start + batch;
+        // Stage inputs to the kernel using the stencil cache
+        StenciledBatchedColumns input_columns(input_column_idx.size());
+        // For each column
+        // NOTE(apoms): choosing the first columns row ids is fine because all
+        // input row ids for each column should be the same since all inputs
+        // must have the same domain
+        auto& cache_row_deque = kernel_cache_row_ids[0];
+        for (size_t i = 0; i < input_column_idx.size(); ++i) {
+          auto& cache_deque = kernel_cache[i];
+          auto& col = input_columns[i];
+          col.resize(batch);
+          // For each batch element
+          for (i64 r = start; r < end; ++r) {
+            auto& input_stencil = col[r - start];
+            i64 last_cache_element = 0;
+            // Place elements in "stencil" dimension of input columns
+            i64 curr_row = kernel_compute_rows[r];
+            for (i64 s : kernel_stencil) {
+              i64 desired_row = curr_row + s;
+              // Search for desired stencil element
+              bool found = false;
+              for (; last_cache_element < cache_row_deque.size();
+                   ++last_cache_element) {
+                i64 cache_row_id = cache_row_deque[last_cache_element];
+                if (desired_row == cache_row_id) {
+                  input_stencil.push_back(cache_deque[last_cache_element]);
+                  found = true;
+                  break;
+                }
+              }
+              assert(found);
             }
-            kernel_current_output_idx++;
+            assert(input_stencil.size() == kernel_stencil.size());
+          }
+        }
+
+        // Setup output buffers to receive op output
+        BatchedColumns output_columns;
+        output_columns.resize(num_output_columns);
+
+        // Map from previous output columns to the set of input columns needed
+        // by the kernel
+        auto eval_start = now();
+        kernel->execute_kernel(input_columns, output_columns);
+        profiler_.add_interval("evaluate:" + op_name, eval_start, now());
+
+        // Delete unused output columns
+        auto& unused_outputs = arg_group_.unused_outputs[k];
+        for (size_t y = 0; y < unused_outputs.size(); ++y) {
+          i32 unused_col_idx =
+              unused_outputs[unused_outputs.size() - 1 - y];
+          ElementList& column = output_columns[unused_col_idx];
+          for (Element& element : column) {
+            delete_element(current_output_handles[unused_col_idx], element);
+          }
+          output_columns.erase(output_columns.begin() + unused_col_idx);
+        }
+
+        // Verify the kernel produced the correct amount of output
+        for (size_t i = 0; i < output_columns.size(); ++i) {
+          LOG_IF(FATAL, output_columns[i].size() != batch)
+              << "Op " << k << " produced " << output_columns[i].size()
+              << " output elements for column " << i << ". Expected " << batch
+              << " outputs.";
+        }
+
+        // Add new output columns
+        for (size_t cidx = 0; cidx < output_columns.size(); ++cidx) {
+          const ElementList& column = output_columns[cidx];
+          i32 col_idx = side_output_columns.size() - num_output_columns + cidx;
+          side_output_columns[col_idx].insert(
+              side_output_columns[col_idx].end(), column.begin(), column.end());
+          auto& output_row_ids = side_row_ids[col_idx];
+          output_row_ids.insert(
+              output_row_ids.end(),
+              producible_row_ids.begin() + start - row_start,
+              producible_row_ids.begin() + start - row_start + batch);
+        }
+      }
+    }
+
+    i64 row_start = kernel_element_cache_input_idx;
+    i64 row_end = row_start + producible_elements;
+    // Filter outputs to only the ones that will be used downstream
+    // For each output row, check if it is in the valid output rows
+    if (num_output_columns > 0) {
+      BatchedColumns temp_output_columns(num_output_columns);
+      std::vector<std::vector<i64>> temp_row_ids(num_output_columns);
+
+      // For each column, transfer all valid rows to temp output, deleting all
+      // the non valid rows, and then swap the temp rows into the side
+      // output columns
+      i32 first_col_idx = side_output_columns.size() - num_output_columns;
+      for (i64 row_start = 0;
+           row_start < side_output_columns[first_col_idx].size(); ++row_start) {
+        assert(!side_row_ids[first_col_idx].empty());
+        // assert(side_row_ids[first_col_idx][row_start] <=
+        //        kernel_valid_output_rows[kernel_current_output_idx]);
+        if (kernel_current_output_idx < kernel_valid_output_rows.size() &&
+            side_row_ids[first_col_idx][row_start] ==
+                kernel_valid_output_rows[kernel_current_output_idx]) {
+          i64 next_row = kernel_valid_output_rows[kernel_current_output_idx];
+          // Is a valid row, so keep
+          for (i64 i = 0; i < num_output_columns; ++i) {
+            i32 col_idx = side_output_columns.size() - num_output_columns + i;
+            auto& element = side_output_columns[col_idx][row_start];
+            temp_output_columns[i].push_back(element);
+            temp_row_ids[i].push_back(next_row);
+          }
+          kernel_current_output_idx++;
+        } else {
+          // Is not a valid row, so delete
+          for (i64 i = 0; i < num_output_columns; ++i) {
+            i32 col_idx = side_output_columns.size() - num_output_columns + i;
+            auto& element = side_output_columns[col_idx][row_start];
+            delete_element(side_output_handles[col_idx], element);
+          }
+        }
+      }
+      for (i64 i = 0; i < num_output_columns; ++i) {
+        i32 col_idx = side_output_columns.size() - num_output_columns + i;
+        side_output_columns[col_idx].swap(temp_output_columns[i]);
+        side_row_ids[col_idx].swap(temp_row_ids[i]);
+      }
+    }
+
+    // Remove elements from the element cache we won't access anymore
+    if (kernel_valid_input_rows.size() > 0) {
+      i64 last_cache_element = 0;
+      i64 min_used_row = kernel_valid_input_rows[std::min(
+          row_end, (i64)kernel_valid_input_rows.size() - 1)];
+      min_used_row += kernel_stencil[0];
+      {
+        auto& row_id_deque = kernel_cache_row_ids[0];
+        while (row_id_deque.size() > 0) {
+          i64 cache_row = row_id_deque.front();
+          if (cache_row < min_used_row) {
+            for (auto& deqs : kernel_cache_row_ids) {
+              deqs.pop_front();
+            }
+            for (size_t i = 0; i < kernel_cache.size(); ++i) {
+              auto device = kernel_cache_devices[i];
+              auto& cache_deque = kernel_cache[i];
+              assert(cache_deque.size() > 0);
+              Element element = cache_deque.front();
+              delete_element(device, element);
+              cache_deque.pop_front();
+            }
           } else {
-            // Is not a valid row, so delete
-            for (i64 i = 0; i < num_output_columns; ++i) {
-              i32 col_idx = side_output_columns.size() - num_output_columns + i;
-              auto& element = side_output_columns[col_idx][row_start];
-              delete_element(side_output_handles[col_idx], element);
-            }
+            break;
           }
         }
-        for (i64 i = 0; i < num_output_columns; ++i) {
-          i32 col_idx = side_output_columns.size() - num_output_columns + i;
-          side_output_columns[col_idx].swap(temp_output_columns[i]);
-          side_row_ids[col_idx].swap(temp_row_ids[i]);
-        }
+        kernel_element_cache_input_idx += producible_elements;
       }
+    }
 
-      // Remove elements from the element cache we won't access anymore
-      if (kernel_valid_input_rows.size() > 0) {
-        i64 last_cache_element = 0;
-        i64 min_used_row = kernel_valid_input_rows[std::min(
-            row_end, (i64)kernel_valid_input_rows.size() - 1)];
-        min_used_row += kernel_stencil[0];
-        {
-          auto& row_id_deque = kernel_cache_row_ids[0];
-          while (row_id_deque.size() > 0) {
-            i64 cache_row = row_id_deque.front();
-            if (cache_row <= min_used_row) {
-              for (auto& deqs : kernel_cache_row_ids) {
-                deqs.pop_front();
-              }
-              for (size_t i = 0; i < kernel_cache.size(); ++i) {
-                auto device = kernel_cache_devices[i];
-                auto& cache_deque = kernel_cache[i];
-                assert(cache_deque.size() > 0);
-                Element element = cache_deque.front();
-                delete_element(device, element);
-                cache_deque.pop_front();
-              }
-            } else {
-              break;
-            }
-          }
-          kernel_element_cache_input_idx += producible_elements;
-        }
+    // Remove dead columns from side_output_handles
+    // TODO(apoms): move this to before the Op eval
+    auto& dead_columns = arg_group_.dead_columns[k];
+    for (size_t y = 0; y < dead_columns.size(); ++y) {
+      i32 dead_col_idx = dead_columns[dead_columns.size() - 1 - y];
+      ElementList& column = side_output_columns[dead_col_idx];
+      for (Element& element : column) {
+        delete_element(side_output_handles[dead_col_idx], element);
       }
+      side_output_columns.erase(side_output_columns.begin() + dead_col_idx);
+      side_output_handles.erase(side_output_handles.begin() + dead_col_idx);
+      side_row_ids.erase(side_row_ids.begin() + dead_col_idx);
+    }
+    // Delete elements from stencil cache that will no longer be used
+  }
 
-      // Remove dead columns from side_output_handles
-      // TODO(apoms): move this to before the Op eval
-      auto& dead_columns = arg_group_.dead_columns[k];
-      for (size_t y = 0; y < dead_columns.size(); ++y) {
-        i32 dead_col_idx = dead_columns[dead_columns.size() - 1 - y];
-        ElementList& column = side_output_columns[dead_col_idx];
-        for (Element& element : column) {
-          delete_element(side_output_handles[dead_col_idx], element);
-        }
-        side_output_columns.erase(side_output_columns.begin() + dead_col_idx);
-        side_output_handles.erase(side_output_handles.begin() + dead_col_idx);
-        side_row_ids.erase(side_row_ids.begin() + dead_col_idx);
-      }
-      // Delete elements from stencil cache that will no longer be used
-    }
-
-    final_output_handles_ = side_output_handles;
-    if (final_output_columns_.size() == 0) {
-      final_output_columns_.resize(side_output_columns.size());
-      final_row_ids_.resize(side_output_columns.size());
-    }
-    for (size_t i = 0; i < side_output_columns.size(); ++i) {
-      final_output_columns_[i].insert(final_output_columns_[i].end(),
-                                      side_output_columns[i].begin(),
-                                      side_output_columns[i].end());
-    }
-    for (size_t i = 0; i < side_output_columns.size(); ++i) {
-      final_row_ids_[i].insert(final_row_ids_[i].end(),
-                               side_row_ids[i].begin(),
-                               side_row_ids[i].end());
-    }
-
+  final_output_handles_ = side_output_handles;
+  if (final_output_columns_.size() == 0) {
+    final_output_columns_.resize(side_output_columns.size());
+    final_row_ids_.resize(side_output_columns.size());
+  }
+  for (size_t i = 0; i < side_output_columns.size(); ++i) {
+    final_output_columns_[i].insert(final_output_columns_[i].end(),
+                                    side_output_columns[i].begin(),
+                                    side_output_columns[i].end());
+  }
+  for (size_t i = 0; i < side_output_columns.size(); ++i) {
+    final_row_ids_[i].insert(final_row_ids_[i].end(),
+                             side_row_ids[i].begin(),
+                             side_row_ids[i].end());
   }
   profiler_.add_interval("feed", feed_start, now());
 }

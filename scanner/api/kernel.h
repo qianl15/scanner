@@ -26,6 +26,14 @@ namespace scanner {
 
 //! Element in a Scanner table, byte buffer of arbitrary size.
 struct Element {
+  Element() = default;
+  Element(const Element&) = default;
+  Element(Element&&) = default;
+  Element& operator=(const Element&) = default;
+
+  Element(u8* buffer, size_t size);
+  Element(Frame* frame);
+
   inline Frame* as_frame() { return reinterpret_cast<Frame*>(buffer); }
   inline const Frame* as_const_frame() const {
     return reinterpret_cast<Frame*>(buffer);
@@ -37,13 +45,9 @@ struct Element {
     return reinterpret_cast<FrameInfo*>(buffer);
   }
 
-  Element() = default;
-  Element(const Element&) = default;
-  Element(Element&&) = default;
-  Element& operator=(const Element&) = default;
-
-  Element(u8* buffer, size_t size);
-  Element(Frame* frame);
+  inline bool is_null() const {
+    return buffer == nullptr;
+  }
 
   u8* buffer;
   size_t size;
@@ -82,6 +86,9 @@ inline void insert_frame(Element& element, Frame* frame) {
 }
 
 inline Element add_element_ref(DeviceHandle device, Element& element) {
+  if (element.is_null()) {
+    return Element();
+  }
   Element ele;
   if (element.is_frame) {
     Frame* frame = element.as_frame();
@@ -97,6 +104,9 @@ inline Element add_element_ref(DeviceHandle device, Element& element) {
 }
 
 inline void delete_element(DeviceHandle device, Element& element) {
+  if (element.is_null()) {
+    return;
+  }
   if (element.is_frame) {
     Frame* frame = element.as_frame();
     delete_buffer(device, frame->data);
@@ -414,6 +424,18 @@ class KernelBuilder {
     return *this;
   }
 
+  KernelBuilder& input_device(const std::string& input_name,
+                              DeviceType device_type) {
+    input_devices_[input_name] = device_type;
+    return *this;
+  }
+
+  KernelBuilder& output_device(const std::string& output_name,
+                               DeviceType device_type) {
+    output_devices_[output_name] = device_type;
+    return *this;
+  }
+
   KernelBuilder& batch(i32 preferred_batch_size = 1) {
     can_batch_ = true;
     preferred_batch_size = preferred_batch_size;
@@ -425,6 +447,8 @@ class KernelBuilder {
   KernelConstructor constructor_;
   DeviceType device_type_;
   i32 num_devices_;
+  std::map<std::string, DeviceType> input_devices_;
+  std::map<std::string, DeviceType> output_devices_;
   bool can_batch_;
   i32 preferred_batch_size_;
 };

@@ -26,13 +26,24 @@ message CaffeArgs {
 
 message FacenetArgs {
   CaffeArgs caffe_args = 1;
-  float scale = 2;
-  float threshold = 3;
+  string templates_path = 2;
+  float scale = 3;
+  float threshold = 4;
 }
 
 message CPM2Args {
   CaffeArgs caffe_args = 1;
   float scale = 2;
+}
+
+message OpenPoseArgs {
+  string model_directory = 1;
+
+  int32 pose_num_scales = 2;
+  float pose_scale_gap = 3;
+
+  int32 hand_num_scales = 4;
+  float hand_scale_gap = 5;
 }
 
 message Camera {

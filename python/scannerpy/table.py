@@ -1,8 +1,10 @@
-from common import *
-from column import Column
+from __future__ import absolute_import, division, print_function, unicode_literals
 import struct
 from itertools import izip
 from timeit import default_timer as now
+
+from scannerpy.common import *
+from scannerpy.column import Column
 
 class Table:
     """
@@ -26,7 +28,6 @@ class Table:
 
     def _need_descriptor(self):
         if self._descriptor is None:
-            print('tables/{}/descriptor.bin'.format(self._id))
             self._descriptor = self._db._load_descriptor(
                 self._db.protobufs.TableDescriptor,
                 'tables/{}/descriptor.bin'.format(self._id))

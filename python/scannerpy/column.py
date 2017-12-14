@@ -1,15 +1,17 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
 import struct
 import cv2
 import math
-from job import Job
-from bulk_job import BulkJob
-from common import *
-from stdlib import parsers
 from subprocess import Popen, PIPE
 import tempfile
 import os
 
-class Column:
+from scannerpy.stdlib import parsers
+from scannerpy.common import *
+from scannerpy.job import Job
+from scannerpy.bulk_job import BulkJob
+
+class Column(object):
     """
     A column of a Table.
     """
@@ -50,7 +52,8 @@ class Column:
             self._db_path, self._table._descriptor.id,
             self._descriptor.id, item_id)
         try:
-            metadata_contents = self._storage.read(metadata_path)
+            metadata_contents = self._storage.read(
+                metadata_path.encode('ascii'))
         except UserWarning:
             raise ScannerException('Path {} does not exist'.format(
                 metadata_path))
@@ -59,7 +62,7 @@ class Column:
             self._db_path, self._table._descriptor.id,
             self._descriptor.id, item_id)
         try:
-            contents = self._storage.read(path)
+            contents = self._storage.read(path.encode('ascii'))
         except UserWarning:
             raise ScannerException('Path {} does not exist'.format(path))
 
@@ -218,7 +221,7 @@ class Column:
         # Copy all files locally before calling ffmpeg
         for in_path, temp_path in zip(paths, temp_paths):
             with open(temp_path, 'w') as f:
-                f.write(self._storage.read(in_path))
+                f.write(self._storage.read(in_path.encode('ascii')))
 
         files = '|'.join(temp_paths)
 
@@ -242,4 +245,6 @@ class Column:
                 fps = vid_fps,
                 extra_args = args,
                 output_name=output_name))
-        Popen(cmd, shell=True).wait()
+        rc = Popen(cmd, shell=True).wait()
+        if rc != 0:
+            raise ScannerException('ffmpeg failed during mp4 export!')

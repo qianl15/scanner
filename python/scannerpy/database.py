@@ -1,3 +1,4 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
 import os
 import os.path
 import sys
@@ -11,6 +12,7 @@ import struct
 import signal
 import copy
 import collections
+import subprocess
 
 from timeit import default_timer as now
 from multiprocessing import Process, Queue
@@ -20,20 +22,20 @@ from string import ascii_uppercase
 from threading import Thread
 from multiprocessing.dummy import Pool as ThreadPool
 
-from common import *
-from profiler import Profiler
-from config import Config
-from op import OpGenerator, Op, OpColumn
-from sampler import Sampler
-from partitioner import TaskPartitioner
-from collection import Collection
-from table import Table
-from column import Column
-from protobuf_generator import ProtobufGenerator
+from scannerpy.common import *
+from scannerpy.profiler import Profiler
+from scannerpy.config import Config
+from scannerpy.op import OpGenerator, Op, OpColumn
+from scannerpy.sampler import Sampler
+from scannerpy.partitioner import TaskPartitioner
+from scannerpy.collection import Collection
+from scannerpy.table import Table
+from scannerpy.column import Column
+from scannerpy.protobuf_generator import ProtobufGenerator
+from scannerpy.job import Job
+from scannerpy.bulk_job import BulkJob
 
 from storehousepy import StorageConfig, StorageBackend
-from job import Job
-from bulk_job import BulkJob
 
 def start_master(port=None, config=None, config_path=None, block=False, watchdog=True):
     """
@@ -60,7 +62,7 @@ def start_master(port=None, config=None, config_path=None, block=False, watchdog
         config.storage_config,
         config.db_path,
         config.master_address + ':' + port)
-    result = bindings.start_master(db, port, watchdog)
+    result = bindings.start_master(db, port.encode('ascii'), watchdog)
     if not result.success:
         raise ScannerException('Failed to start master: {}'.format(result.msg))
     if block:
@@ -100,7 +102,8 @@ def start_worker(master_address, machine_params=None, port=None, config=None,
         config.db_path,
         master_address)
     machine_params = machine_params or bindings.default_machine_params()
-    result = bindings.start_worker(db, machine_params, str(port), watchdog)
+    result = bindings.start_worker(db, machine_params,
+                                   str(port).encode('ascii'), watchdog)
     if not result.success:
         raise ScannerException('Failed to start worker: {}'.format(result.msg))
     if block:
@@ -108,7 +111,7 @@ def start_worker(master_address, machine_params=None, port=None, config=None,
     return result
 
 
-class Database:
+class Database(object):
     """
     Entrypoint for all Scanner operations.
 
@@ -169,13 +172,11 @@ class Database:
 
         # Initialize database if it does not exist
         pydb_path = '{}/pydb'.format(self._db_path)
-
-        pydbpath_info = self._storage.get_file_info(pydb_path+'/')
-        
+        pydbpath_info = self._storage.get_file_info(
+            (pydb_path+'/').encode('ascii'))
 
         if not (pydbpath_info.file_exists and pydbpath_info.file_is_folder):
-            print('{:s} not exist, make_dir'.format(pydb_path))
-            self._storage.make_dir(pydb_path)
+            self._storage.make_dir(pydb_path.encode('ascii'))
             self._collections = self.protobufs.CollectionsDescriptor()
             self._update_collections()
 
@@ -193,6 +194,15 @@ class Database:
     def __exit__(self, exception_type, exception_val, exception_tb):
         self.stop_cluster()
         del self._db
+
+    def has_gpu(self):
+        try:
+            with open(os.devnull, 'w') as f:
+                subprocess.check_call(['nvidia-smi'], stdout=f, stderr=f)
+            return True
+        except OSError:
+            pass
+        return False
 
     def summarize(self):
         summary = ''
@@ -233,7 +243,7 @@ class Database:
                             for name, c in cols]
             table_width = sum(max_col_lens) + 3*(num_cols-1)
             label = '** {} **'.format(label)
-            summary += ' ' * (table_width/2 - len(label)/2) + label + '\n'
+            summary += ' ' * int(table_width/2 - len(label)/2) + label + '\n'
             summary += '-' * table_width + '\n'
             col_name_fmt = ' | '.join(['{{:{}}}' for _ in range(num_cols)])
             col_name_fmt = col_name_fmt.format(*max_col_lens)
@@ -248,12 +258,13 @@ class Database:
     def _load_descriptor(self, descriptor, path):
         d = descriptor()
         d.ParseFromString(
-            self._storage.read('{}/{}'.format(self._db_path, path)))
+            self._storage.read(
+                ('{}/{}'.format(self._db_path, path)).encode('ascii')))
         return d
 
     def _save_descriptor(self, descriptor, path):
         self._storage.write(
-            '{}/{}'.format(self._db_path, path),
+            ('{}/{}'.format(self._db_path, path)).encode('ascii'),
             descriptor.SerializeToString())
 
     def _load_db_metadata(self):
@@ -327,13 +338,14 @@ class Database:
         def heartbeat_task(q, master_address):
             import scanner.metadata_pb2 as metadata_types
             import scanner.engine.rpc_pb2 as rpc_types
+            import scanner.engine.rpc_pb2_grpc as grpc_types
             import scanner.types_pb2 as misc_types
             import libscanner as bindings
 
             channel = grpc.insecure_channel(
                 master_address,
                 options=[('grpc.max_message_length', 24499183 * 2)])
-            master = rpc_types.MasterStub(channel)
+            master = grpc_types.MasterStub(channel)
             while q.empty():
                 master.PokeWatchdog(rpc_types.Empty())
                 time.sleep(1)
@@ -380,8 +392,8 @@ class Database:
         # Boot up C++ database bindings
         self._db = self._bindings.Database(
             self.config.storage_config,
-            str(self._db_path),
-            str(self._master_address))
+            str(self._db_path).encode('ascii'),
+            str(self._master_address).encode('ascii'))
 
         if self._start_cluster:
             # Set handler to shutdown cluster on signal
@@ -395,7 +407,7 @@ class Database:
                 self._worker_conns = None
                 machine_params = self._bindings.default_machine_params()
                 res = self._bindings.start_master(
-                    self._db, self.config.master_port, True).success
+                    self._db, self.config.master_port.encode('ascii'), True).success
                 assert res
                 res = self._connect_to_master()
                 assert res
@@ -405,7 +417,7 @@ class Database:
                 for i in range(len(self._worker_addresses)):
                     res = self._bindings.start_worker(
                         self._db, machine_params,
-                        str(int(self.config.worker_port) + i), True).success
+                        str(int(self.config.worker_port) + i).encode('ascii'), True).success
                     assert res
             else:
                 master_port = self._master_address.partition(':')[2]
@@ -575,7 +587,7 @@ class Database:
             self.protobufs.add_module(proto_path)
         self._try_rpc(lambda: self._master.RegisterOp(op_registration))
 
-    def register_python_kernel(self, op_name, device_type, kernel_path, 
+    def register_python_kernel(self, op_name, device_type, kernel_path,
                                batch=1):
         with open(kernel_path, 'r') as f:
             kernel_str = f.read()
@@ -602,7 +614,9 @@ class Database:
         del self._collections.names[index]
         del self._collections.ids[index]
 
-        self._storage.delete_file('{}/pydb/collection_{}.bin'.format(self._db_path, id))
+        self._storage.delete_file(
+            ('{}/pydb/collection_{}.bin'.format(
+                self._db_path, id)).encode('ascii'))
 
     def new_collection(self, collection_name, tables, force=False, job_id=None):
         """
@@ -778,7 +792,9 @@ class Database:
         cols.insert(0, "index")
         for i, row in enumerate(rows):
             row.insert(0, struct.pack('=Q', i))
-        self._bindings.new_table(self._db, name, cols, rows)
+        self._bindings.new_table(self._db, name.encode('ascii'),
+                                 [s.encode('ascii') for s in cols],
+                                 rows)
         self._cached_db_metadata = None
         return self.table(name)
 

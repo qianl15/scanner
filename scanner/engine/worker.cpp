@@ -404,11 +404,7 @@ void save_driver(SaveInputQueue& save_work,
   // }
   
   Profiler& profiler = args.profiler;
-  SaveWorker worker(args);
-
-  i32 processed = 0;
-  i32 active_job = -1;
-  i32 active_task = -1;
+  std::map<std::tuple<i32, i32>, std::unique_ptr<SaveWorker>> workers;
   while (true) {
     // printf("in save_driver\n");
     auto idle_start = now();
@@ -431,19 +427,20 @@ void save_driver(SaveInputQueue& save_work,
 
     auto work_start = now();
 
-    if (work_entry.job_index != active_job ||
-        work_entry.task_index != active_task) {
-      active_job = work_entry.job_index;
-      active_task = work_entry.task_index;
-
-      worker.new_task(work_entry.table_id, work_entry.task_index,
-                      work_entry.column_types);
-      processed = 0;
+    // Check if we have a worker for this task
+    auto job_task_id =
+        std::make_tuple(work_entry.job_index, work_entry.task_index);
+    if (workers.count(job_task_id) == 0) {
+      SaveWorker* worker = new SaveWorker(args);
+      worker->new_task(work_entry.table_id, work_entry.task_index,
+                       work_entry.column_types);
+      workers[job_task_id].reset(worker);
     }
-    processed++;
+
+    auto& worker = workers.at(job_task_id);
 
     auto input_entry = work_entry;
-    worker.feed(input_entry);
+    worker->feed(input_entry);
 
     VLOG(2) << "Save (N/KI: " << args.node_id << "/" << args.worker_id
             << "): finished task (" << work_entry.job_index << ", "
@@ -454,6 +451,7 @@ void save_driver(SaveInputQueue& save_work,
     if (work_entry.last_in_task) {
       output_work.push(std::make_tuple(pipeline_instance, work_entry.job_index,
                                        work_entry.task_index));
+      workers.erase(job_task_id);
     }
   }
   // printf("stop save_driver\n");
@@ -1466,10 +1464,28 @@ grpc::Status WorkerImpl::RegisterPythonKernel(
     const KernelConfig& config) {
     return new PythonKernel(config, kernel_str, pickled_config, batch_size);
   };
+  // Set all input and output columns to be CPU
+  std::map<std::string, DeviceType> input_devices;
+  std::map<std::string, DeviceType> output_devices;
+  {
+    OpRegistry* registry = get_op_registry();
+    OpInfo* info = registry->get_op_info(op_name);
+    if (info->variadic_inputs()) {
+      assert(device_type != DeviceType::GPU);
+    } else {
+      for (const auto& in_col : info->input_columns()) {
+        input_devices[in_col.name()] = DeviceType::CPU;
+      }
+    }
+    for (const auto& out_col : info->output_columns()) {
+      output_devices[out_col.name()] = DeviceType::CPU;
+    }
+  }
   // Create a new kernel factory
   bool can_batch = (batch_size > 1);
-  KernelFactory* factory = new KernelFactory(op_name, device_type, 1, 
-                                  can_batch, batch_size, constructor);
+  KernelFactory* factory =
+      new KernelFactory(op_name, device_type, 1, input_devices, output_devices,
+                        can_batch, batch_size, constructor);
   // Register the kernel
   KernelRegistry* registry = get_kernel_registry();
   registry->add_kernel(op_name, factory);
