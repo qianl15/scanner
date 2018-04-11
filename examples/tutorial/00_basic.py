@@ -1,4 +1,4 @@
-from scannerpy import Database, DeviceType, Job, BulkJob
+from scannerpy import Database, DeviceType, Job
 from scannerpy.stdlib import parsers
 
 import numpy as np
@@ -15,8 +15,8 @@ import util
 
 # Initialize a connection to the Scanner database. Loads configuration from the
 # ~/.scanner.toml configuration file.
+#with Database(workers=['workerip:5002']) as db:
 with Database() as db:
-
     # Create a Scanner table from our video in the format (table name,
     # video path). If any videos fail to ingest, they'll show up in the failed
     # list. If force is true, it will overwrite existing tables of the same
@@ -56,11 +56,11 @@ with Database() as db:
     # Multiple tables can be created using the same execution graph using
     # a bulk job. Here we specify the execution graph (or DAG) by providing
     # the output_op and also specify the jobs we wish to compute.
-    bulk_job = BulkJob(output=output_op, jobs=[job])
+    # bulk_job = BulkJob(output=output_op, jobs=[job])
 
     # This executes the job and produces the output table. You'll see a progress
     # bar while Scanner is computing the outputs.
-    output_tables = db.run(bulk_job, force=True)
+    output_tables = db.run(output=output_op, jobs=[job], force=True)
 
     # Load the histograms from a column of the output table. The
     # parsers.histograms  function  converts the raw bytes output by Scanner
