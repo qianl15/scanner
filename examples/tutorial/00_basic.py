@@ -65,13 +65,14 @@ with Database() as db:
     # Load the histograms from a column of the output table. The
     # parsers.histograms  function  converts the raw bytes output by Scanner
     # into a numpy array for each channel.
-    video_hists = output_tables[0].load(['hist'], parsers.histograms)
+    video_hists = output_tables[0].column('hist').load(parsers.histograms)
 
     # Loop over the column's rows. Each row is a tuple of the frame number and
     # value for that row.
     num_rows = 0
-    for (frame_index, frame_hists) in video_hists:
+    for frame_hists in video_hists:
         assert len(frame_hists) == 3
         assert frame_hists[0].shape[0] == 16
         num_rows += 1
     assert num_rows == db.table('example').num_rows()
+    print(db.summarize())
